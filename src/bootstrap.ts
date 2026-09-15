@@ -1,75 +1,153 @@
-import { ServerConfig } from './plugins/serverConfig';
+import { ServerConfig, type ServerEntry } from './plugins/serverConfig';
 
-const form = document.getElementById('form') as HTMLFormElement;
-const input = document.getElementById('url') as HTMLInputElement;
-const submit = document.getElementById('submit') as HTMLButtonElement;
-const status = document.getElementById('status') as HTMLParagraphElement;
+// Kept in step with hasht-desktop's picker.js.
+const HOSTED_URL = 'chat.hasht.net';
+const HOSTED_NAME = 'Hasht';
 
-function setStatus(text: string, state: 'idle' | 'error' = 'idle') {
-  status.textContent = text;
-  status.dataset.state = state;
+const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+const headline = el('headline');
+const tagline = el('tagline');
+const addHeading = el('add-heading');
+const serversSection = el('servers-section');
+const serversEl = el<HTMLUListElement>('servers');
+const errorEl = el('error');
+const urlInput = el<HTMLInputElement>('url');
+const nameInput = el<HTMLInputElement>('name');
+const hostedBtn = el<HTMLButtonElement>('hosted-connect');
+const selfhostedForm = el<HTMLFormElement>('selfhosted-form');
+const selfhostedBtn = el<HTMLButtonElement>('selfhosted-connect');
+
+// Only one choice card is expanded at a time.
+for (const card of document.querySelectorAll<HTMLElement>('.card')) {
+  card.querySelector('.card-head')?.addEventListener('click', () => {
+    for (const other of document.querySelectorAll('.card')) {
+      other.classList.toggle('selected', other === card);
+    }
+    if (card.dataset.choice === 'selfhosted') urlInput.focus();
+  });
 }
 
-/** Bare host → https://host; anything already carrying a scheme is left alone. */
-function normalize(raw: string): string | null {
-  const trimmed = raw.trim().replace(/\/+$/, '');
-  if (!trimmed) return null;
-  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+async function withBusy(btn: HTMLButtonElement, fn: () => Promise<void>) {
+  errorEl.textContent = '';
+  btn.disabled = true;
   try {
-    const url = new URL(withScheme);
-    return url.origin;
-  } catch {
-    return null;
+    await fn();
+  } catch (error) {
+    errorEl.textContent = error instanceof Error ? error.message : "Couldn't reach that server.";
+  } finally {
+    btn.disabled = false;
   }
 }
 
+/** Bare host → https://host. Throws on input no amount of guessing fixes. */
+function normalize(raw: string): string {
+  const trimmed = raw.trim().replace(/\/+$/, '');
+  if (!trimmed) throw new Error("Enter your server's address.");
+  const url = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+  return url.origin;
+}
+
 /**
- * Confirms the origin is a Hasht instance before handing the webview over to
+ * Confirms the origin is a Hasht instance before the webview is handed over to
  * it — a typo that lands on an unrelated site would otherwise leave the user
  * staring at someone else's page with no way back.
  */
-async function probe(origin: string): Promise<{ name: string }> {
+async function probe(origin: string): Promise<void> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
   try {
-    const health = await fetch(`${origin}/api/health`, { signal: controller.signal });
-    if (!health.ok) throw new Error(`server returned ${health.status}`);
-    const body = await health.json();
-    if (body?.status !== 'ok') throw new Error('not a Hasht server');
-
-    // Public endpoint — gives us the instance's own name to confirm against.
-    const settings = await fetch(`${origin}/api/instance-settings`, { signal: controller.signal });
-    const name = settings.ok ? ((await settings.json())?.app_name ?? 'Hasht') : 'Hasht';
-    return { name };
+    const response = await fetch(`${origin}/api/health`, { signal: controller.signal });
+    if (!response.ok) throw new Error(`That server returned ${response.status}.`);
+    if ((await response.json())?.status !== 'ok') {
+      throw new Error("That address doesn't look like a Hasht server.");
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error("That server didn't respond.");
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
 }
 
-form.addEventListener('submit', async (event) => {
+async function addServer(rawUrl: string, name?: string) {
+  const origin = normalize(rawUrl);
+  await probe(origin);
+  await ServerConfig.add({ url: origin, name });
+}
+
+hostedBtn.addEventListener('click', () =>
+  withBusy(hostedBtn, () => addServer(HOSTED_URL, HOSTED_NAME)),
+);
+
+selfhostedForm.addEventListener('submit', (event) => {
   event.preventDefault();
-  const origin = normalize(input.value);
-  if (!origin) {
-    setStatus('That does not look like a valid address.', 'error');
-    return;
-  }
+  void withBusy(selfhostedBtn, async () => {
+    await addServer(urlInput.value, nameInput.value.trim() || undefined);
+    urlInput.value = '';
+    nameInput.value = '';
+  });
+});
 
-  submit.disabled = true;
-  setStatus(`Contacting ${new URL(origin).host}…`);
+function renderServer(server: ServerEntry, activeId: string | null): HTMLLIElement {
+  const row = document.createElement('li');
+  row.className = 'server';
+  row.dataset.active = String(server.id === activeId);
+
+  const meta = document.createElement('button');
+  meta.type = 'button';
+  meta.className = 'meta';
+  meta.innerHTML = '<div class="name"></div><div class="url"></div>';
+  meta.querySelector('.name')!.textContent = server.name;
+  meta.querySelector('.url')!.textContent = new URL(server.url).host;
+  meta.addEventListener('click', () => {
+    void ServerConfig.connect({ id: server.id });
+  });
+
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'icon-btn danger';
+  remove.textContent = 'Remove';
+  remove.addEventListener('click', async () => {
+    await ServerConfig.remove({ id: server.id });
+    await refresh();
+  });
+
+  row.append(meta, remove);
+  return row;
+}
+
+async function refresh() {
+  let servers: ServerEntry[] = [];
+  let activeId: string | null = null;
   try {
-    const { name } = await probe(origin);
-    setStatus(`Connecting to ${name}…`);
-    await ServerConfig.connect({ url: origin });
+    ({ servers, activeId } = await ServerConfig.list());
   } catch (error) {
-    const reason = error instanceof Error ? error.message : 'unknown error';
-    setStatus(`Could not reach that server (${reason}).`, 'error');
-    submit.disabled = false;
+    // Without the native half there is nothing to connect to, and a silent
+    // failure leaves a half-drawn wizard with no explanation.
+    errorEl.textContent = `Native bridge unavailable: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
   }
-});
 
-// A configured instance skips the picker entirely; native reloads straight
-// into it on launch, so reaching here with a URL set means we were reset to
-// pick a different one.
-ServerConfig.get().then(({ url }) => {
-  if (url) input.value = url;
-});
+  const hasServers = servers.length > 0;
+
+  serversSection.hidden = !hasServers;
+  headline.textContent = hasServers ? 'Hasht' : 'Welcome to Hasht';
+  tagline.textContent = hasServers
+    ? 'Pick a server or add another.'
+    : 'Choose how you want to connect.';
+  addHeading.textContent = hasServers ? 'Add a server' : 'Connect';
+
+  // On first run, nudge toward the hosted option; once the user has servers,
+  // nothing is pre-expanded.
+  if (!hasServers && !document.querySelector('.card.selected')) {
+    el('card-hosted').classList.add('selected');
+  }
+
+  serversEl.replaceChildren(...servers.map((server) => renderServer(server, activeId)));
+}
+
+void refresh();

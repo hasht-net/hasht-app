@@ -1,17 +1,29 @@
 import { registerPlugin } from '@capacitor/core';
 
+export interface ServerEntry {
+  id: string;
+  url: string;
+  /** Defaults to the hostname when the user doesn't give one. */
+  name: string;
+}
+
 /**
- * Runtime control over which instance the webview points at.
+ * The servers the user has added, and which one the webview is pointed at.
  *
- * Capacitor's `server.url` is static config, so a user-chosen instance has to
- * be applied natively: `connect` persists the URL and reloads the webview at
- * it; `reset` returns to the bundled bootstrap picker (used on sign-out and
- * when an instance becomes unreachable).
+ * Capacitor's `server.url` is static config, so a user-chosen instance can
+ * only be applied natively. Mirrors `hasht-desktop`'s `serverStore.ts` so the
+ * two shells behave the same; this holds only "which servers has the user
+ * added" — never credentials, which stay in each origin's own cookie jar.
  */
 export interface ServerConfigPlugin {
-  /** The instance currently configured, or `{ url: null }` on first run. */
-  get(): Promise<{ url: string | null }>;
-  connect(options: { url: string }): Promise<void>;
+  list(): Promise<{ servers: ServerEntry[]; activeId: string | null }>;
+  /** Adds, makes active, and loads it. */
+  add(options: { url: string; name?: string }): Promise<{ server: ServerEntry }>;
+  /** Switches to an already-added server and loads it. */
+  connect(options: { id: string }): Promise<void>;
+  remove(options: { id: string }): Promise<void>;
+  rename(options: { id: string; name: string }): Promise<void>;
+  /** Back to the picker without forgetting anything — sign-out, dead instance. */
   reset(): Promise<void>;
 }
 

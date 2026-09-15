@@ -7,6 +7,14 @@ const config: CapacitorConfig = {
   appId: 'net.hasht.app',
   appName: 'Hasht',
   webDir: 'dist',
+  server: {
+    // The instance is arbitrary and user-supplied, so no fixed allowlist can
+    // describe it. Without this Capacitor treats the configured server as
+    // "external" and punts it to Safari instead of loading it in-app.
+    // TODO: narrow to the active instance's host via a navigation policy in
+    // MainViewController, so stray links still open in the system browser.
+    allowNavigation: ['*'],
+  },
   ios: {
     // Must stay false. App-Bound Domains requires a fixed <=10 domain list in
     // Info.plist, which a self-hosted client can never satisfy.

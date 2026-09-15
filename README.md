@@ -15,12 +15,19 @@ release.
 
 ```
 launch
-  └─ stored instance URL?
-       no  → bundled bootstrap picker (index.html, src/bootstrap.ts)
-             └─ probe /api/health + /api/instance-settings
-                └─ ServerConfig.connect(url) → persist + reload webview
+  └─ active server stored?
+       no  → bundled wizard (index.html, src/bootstrap.ts)
+             ├─ Hasht Cloud → chat.hasht.net
+             └─ Self-hosted → probe /api/health
+                └─ ServerConfig.add(url) → persist, activate, load
        yes → webview loads that instance directly
 ```
+
+The wizard mirrors `hasht-desktop`'s picker: a hosted card and a self-hosted
+card, plus the list of servers already added (switch or remove). The store
+holds only which servers the user added — never credentials, which stay in each
+origin's own cookie jar. WKWebView isolates those per origin, so switching
+servers keeps sessions separate for free.
 
 `ServerConfig` is a small custom plugin (`ios/App/App/ServerConfigPlugin.swift`,
 `android/.../ServerConfigPlugin.java`) because Capacitor's `server.url` is
@@ -55,18 +62,33 @@ Capacitor 8 uses Swift Package Manager on iOS — **no CocoaPods required**.
 
 ## Status
 
-Scaffolding only. Both platforms build; nothing has been run against a real
-instance yet.
-
 | | |
 |---|---|
-| iOS project builds | ✅ (`xcodebuild`, unsigned) |
-| Android project builds | ✅ (`compileDebugJavaWithJavac`) |
-| Bootstrap picker | ✅ written, ❌ never run on device |
-| `ServerConfig` plugin | ✅ written, ❌ never run on device |
+| iOS builds + runs | ✅ verified on iOS 26.5 simulator |
+| Android project builds | ✅ (`compileDebugJavaWithJavac`), ❌ not yet run |
+| Wizard renders | ✅ verified in simulator |
+| `ServerConfig` plugin | ✅ verified — store, launch reload, remote load |
+| Loads a live instance in-app | ✅ verified against chat.hasht.net |
+| Connect buttons (tap-through) | ⚠️ not yet exercised; launch path proven by seeding the store |
 | Push | ❌ not started — blocked on the relay |
 | Deep links / auth handoff | ⚠️ manifest + Info.plist wired, no handler |
 | Frontend integration | ⚠️ contract drafted, not yet vendored into chat |
+
+### Things the first run taught us
+
+Four traps, all invisible to a green build:
+
+1. **App-target Swift plugins are not auto-registered.** They need
+   `bridge?.registerPluginInstance(...)` — hence `MainViewController`.
+2. **Capacitor 8's `SceneDelegate` builds `CAPBridgeViewController()` in code**,
+   so setting the class in `Main.storyboard` does nothing. The subclass has to
+   be wired in `SceneDelegate.swift`.
+3. **`cap add ios` generates a legacy Xcode project**, so new `.swift` files
+   must be added to `project.pbxproj` to be compiled at all. A build that never
+   compiles your file still says BUILD SUCCEEDED.
+4. **Without `server.allowNavigation`, the instance opens in Safari** — Capacitor
+   treats any origin outside its allowlist as external. Set to `['*']` because
+   the instance is user-supplied; see the TODO in `capacitor.config.ts`.
 
 ## Roadmap
 
@@ -74,8 +96,9 @@ instance yet.
    backgrounded during a call. A day's work, and it decides whether the media
    plane can stay in the webview or has to go native — the most expensive
    branch in the plan. WebKit #241480 is still open.
-2. Run the picker on device; confirm the webview reloads into a live instance
-   and that the Capacitor bridge is present on the remote origin.
+2. Confirm the Capacitor bridge is reachable from the remote origin (the app
+   loads it; nothing has called a plugin from there yet). Everything in
+   `src/integration/` depends on this.
 3. Push: build the APNs relay (separate repo), add a backend endpoint for
    native device tokens, add a Notification Service Extension here to decrypt
    the aes128gcm payload.

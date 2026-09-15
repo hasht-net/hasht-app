@@ -8,23 +8,55 @@
     <link rel="stylesheet" href="/src/bootstrap.css" />
   </head>
   <body>
-    <main class="picker">
-      <h1>Connect to a server</h1>
-      <p class="sub">Enter the address of your Hasht instance.</p>
-      <form id="form" novalidate>
-        <input
-          id="url"
-          type="url"
-          inputmode="url"
-          autocapitalize="none"
-          autocorrect="off"
-          spellcheck="false"
-          placeholder="chat.example.com"
-          required
-        />
-        <button id="submit" type="submit">Connect</button>
-      </form>
-      <p id="status" class="status" role="status" aria-live="polite"></p>
+    <main class="wizard">
+      <header>
+        <h1 id="headline">Welcome to Hasht</h1>
+        <p id="tagline" class="tagline">Choose how you want to connect.</p>
+      </header>
+
+      <section id="servers-section" hidden>
+        <h2 id="servers-heading">Your servers</h2>
+        <ul id="servers" class="servers"></ul>
+      </section>
+
+      <section>
+        <h2 id="add-heading">Connect</h2>
+
+        <div class="card" id="card-hosted" data-choice="hosted">
+          <button class="card-head" type="button">
+            <span class="card-title">Hasht Cloud <span class="badge">Hosted</span></span>
+            <span class="card-sub">Sign in at chat.hasht.net — nothing to run yourself.</span>
+          </button>
+          <div class="card-body">
+            <button id="hosted-connect" class="primary" type="button">Continue</button>
+          </div>
+        </div>
+
+        <div class="card" id="card-selfhosted" data-choice="selfhosted">
+          <button class="card-head" type="button">
+            <span class="card-title">Self-hosted</span>
+            <span class="card-sub">Connect to an instance you or your team runs.</span>
+          </button>
+          <div class="card-body">
+            <form id="selfhosted-form" novalidate>
+              <input
+                id="url"
+                type="url"
+                inputmode="url"
+                autocapitalize="none"
+                autocorrect="off"
+                spellcheck="false"
+                placeholder="chat.example.com"
+                required
+              />
+              <input id="name" type="text" placeholder="Name (optional)" autocapitalize="words" />
+              <button id="selfhosted-connect" class="primary" type="submit">Connect</button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <p id="error" class="error" role="status" aria-live="polite"></p>
     </main>
     <script type="module" src="/src/bootstrap.ts"></script>
   </body>
