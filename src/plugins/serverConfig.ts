@@ -16,6 +16,14 @@ export interface ServerEntry {
  * added" — never credentials, which stay in each origin's own cookie jar.
  */
 export interface ServerConfigPlugin {
+  /**
+   * Confirms an origin is a Hasht instance, and reports its name.
+   *
+   * Runs natively: the wizard is served from `capacitor://localhost`, so a
+   * `fetch` from it is cross-origin and no instance will have that scheme in
+   * its `CORS_ALLOWED_ORIGINS`. Native HTTP has no such restriction.
+   */
+  probe(options: { url: string }): Promise<{ name: string }>;
   list(): Promise<{ servers: ServerEntry[]; activeId: string | null }>;
   /** Adds, makes active, and loads it. */
   add(options: { url: string; name?: string }): Promise<{ server: ServerEntry }>;

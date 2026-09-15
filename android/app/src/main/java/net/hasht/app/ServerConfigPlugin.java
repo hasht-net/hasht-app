@@ -13,6 +13,10 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.UUID;
 
 /**
@@ -78,6 +82,66 @@ public class ServerConfigPlugin extends Plugin {
             if (active != null) loadInstance(active.getString("url"));
         } catch (JSONException e) {
             // A corrupt store just means the user picks again.
+        }
+    }
+
+    /**
+     * Confirms an origin is a Hasht instance and reports its name.
+     *
+     * Native rather than a fetch from the wizard: that page is served from a
+     * local scheme, and no instance will have it in CORS_ALLOWED_ORIGINS.
+     */
+    @PluginMethod
+    public void probe(PluginCall call) {
+        final String base = call.getString("url");
+        if (base == null) {
+            call.reject("That doesn't look like a valid address.");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                String body = get(base + "/api/health");
+                if (!"ok".equals(new JSONObject(body).optString("status"))) {
+                    call.reject("That address doesn't look like a Hasht server.");
+                    return;
+                }
+            } catch (Exception e) {
+                call.reject("Couldn't reach that server: " + e.getMessage());
+                return;
+            }
+
+            // Best-effort: a reachable instance with an unreadable name is
+            // still fine to connect to.
+            String name = Uri.parse(base).getHost();
+            try {
+                String settings = get(base + "/api/instance-settings");
+                String appName = new JSONObject(settings).optString("app_name");
+                if (!appName.isEmpty()) name = appName;
+            } catch (Exception ignored) {
+            }
+
+            JSObject result = new JSObject();
+            result.put("name", name);
+            call.resolve(result);
+        }).start();
+    }
+
+    private String get(String url) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        connection.setConnectTimeout(8000);
+        connection.setReadTimeout(8000);
+        try {
+            if (connection.getResponseCode() != 200) {
+                throw new Exception("server returned " + connection.getResponseCode());
+            }
+            StringBuilder body = new StringBuilder();
+            try (BufferedReader reader =
+                     new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+                for (String line; (line = reader.readLine()) != null; ) body.append(line);
+            }
+            return body.toString();
+        } finally {
+            connection.disconnect();
         }
     }
 

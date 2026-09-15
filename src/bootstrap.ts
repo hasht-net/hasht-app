@@ -48,34 +48,11 @@ function normalize(raw: string): string {
   return url.origin;
 }
 
-/**
- * Confirms the origin is a Hasht instance before the webview is handed over to
- * it — a typo that lands on an unrelated site would otherwise leave the user
- * staring at someone else's page with no way back.
- */
-async function probe(origin: string): Promise<void> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
-  try {
-    const response = await fetch(`${origin}/api/health`, { signal: controller.signal });
-    if (!response.ok) throw new Error(`That server returned ${response.status}.`);
-    if ((await response.json())?.status !== 'ok') {
-      throw new Error("That address doesn't look like a Hasht server.");
-    }
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error("That server didn't respond.");
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 async function addServer(rawUrl: string, name?: string) {
   const origin = normalize(rawUrl);
-  await probe(origin);
-  await ServerConfig.add({ url: origin, name });
+  // Native, not fetch — see ServerConfigPlugin.probe.
+  const { name: instanceName } = await ServerConfig.probe({ url: origin });
+  await ServerConfig.add({ url: origin, name: name ?? instanceName });
 }
 
 hostedBtn.addEventListener('click', () =>
@@ -151,3 +128,4 @@ async function refresh() {
 }
 
 void refresh();
+

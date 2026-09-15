@@ -22,6 +22,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "ServerConfigPlugin"
     public let jsName = "ServerConfig"
     public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "probe", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "list", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "add", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "connect", returnType: CAPPluginReturnPromise),
@@ -53,6 +54,67 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     override public func load() {
         guard let active = servers.first(where: { $0.id == activeId }) else { return }
         load(active.url)
+    }
+
+    /// Confirms an origin is a Hasht instance and reports its name.
+    ///
+    /// Native rather than a `fetch` from the wizard: that page is served from
+    /// `capacitor://localhost`, and no instance will have that scheme in its
+    /// `CORS_ALLOWED_ORIGINS`.
+    @objc func probe(_ call: CAPPluginCall) {
+        guard let raw = call.getString("url"),
+              let base = URL(string: raw),
+              let health = URL(string: "/api/health", relativeTo: base)
+        else {
+            call.reject("That doesn't look like a valid address.")
+            return
+        }
+
+        var request = URLRequest(url: health)
+        request.timeoutInterval = 8
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            if let error = error {
+                call.reject("Couldn't reach that server: \(error.localizedDescription)")
+                return
+            }
+            guard let status = (response as? HTTPURLResponse)?.statusCode, status == 200 else {
+                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                call.reject("That server returned \(code).")
+                return
+            }
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  json["status"] as? String == "ok"
+            else {
+                call.reject("That address doesn't look like a Hasht server.")
+                return
+            }
+            self?.fetchName(base: base) { name in
+                call.resolve(["name": name ?? base.host ?? "Hasht"])
+            }
+        }.resume()
+    }
+
+    /// Best-effort: a reachable instance with an unreadable name is still fine
+    /// to connect to, so this never fails the probe.
+    private func fetchName(base: URL, completion: @escaping (String?) -> Void) {
+        guard let settings = URL(string: "/api/instance-settings", relativeTo: base) else {
+            completion(nil)
+            return
+        }
+        var request = URLRequest(url: settings)
+        request.timeoutInterval = 8
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let name = json["app_name"] as? String, !name.isEmpty
+            else {
+                completion(nil)
+                return
+            }
+            completion(name)
+        }.resume()
     }
 
     @objc func list(_ call: CAPPluginCall) {

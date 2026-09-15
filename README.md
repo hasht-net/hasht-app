@@ -69,7 +69,8 @@ Capacitor 8 uses Swift Package Manager on iOS — **no CocoaPods required**.
 | Wizard renders | ✅ verified in simulator |
 | `ServerConfig` plugin | ✅ verified — store, launch reload, remote load |
 | Loads a live instance in-app | ✅ verified against chat.hasht.net |
-| Connect buttons (tap-through) | ⚠️ not yet exercised; launch path proven by seeding the store |
+| Instance probe (native) | ✅ verified against chat.hasht.net |
+| Connect buttons (tap-through) | ⚠️ not yet exercised — no touch input via simctl |
 | Push | ❌ not started — blocked on the relay |
 | Deep links / auth handoff | ⚠️ manifest + Info.plist wired, no handler |
 | Frontend integration | ⚠️ contract drafted, not yet vendored into chat |
@@ -89,6 +90,12 @@ Four traps, all invisible to a green build:
 4. **Without `server.allowNavigation`, the instance opens in Safari** — Capacitor
    treats any origin outside its allowlist as external. Set to `['*']` because
    the instance is user-supplied; see the TODO in `capacitor.config.ts`.
+5. **The wizard cannot `fetch` an instance.** It is served from
+   `capacitor://localhost`, so every request to an instance is cross-origin and
+   no self-hoster will have that scheme in `CORS_ALLOWED_ORIGINS`. Hence
+   `ServerConfig.probe` runs natively. Anything else the wizard ever needs from
+   an instance has the same constraint — the remote frontend does not, since it
+   is same-origin with its own server.
 
 ## Roadmap
 
