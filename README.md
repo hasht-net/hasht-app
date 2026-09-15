@@ -35,9 +35,10 @@ A wrong instance must never be a dead end, and the escape cannot depend on the
 remote frontend cooperating — before sign-in there is nothing to cooperate with.
 So the shell owns one:
 
-- **iOS** — a "‹ Servers" pill, top-leading. It stays put rather than
-  auto-hiding: an escape the user cannot see is not an escape. Left-edge swipe
-  also works; the wizard stays in the webview's history.
+- **iOS** — a "‹ Servers" pill, top-leading, shown whenever an instance is
+  loaded (the wizard itself has nothing to go back to). It stays put rather
+  than auto-hiding: an escape the user cannot see is not an escape. Left-edge
+  swipe also works; the wizard stays in the webview's history.
 - **Android** — system back, which also clears the active server so the next
   launch does not reload it.
 
@@ -107,7 +108,11 @@ Four traps, all invisible to a green build:
 4. **Without `server.allowNavigation`, the instance opens in Safari** — Capacitor
    treats any origin outside its allowlist as external. Set to `['*']` because
    the instance is user-supplied; see the TODO in `capacitor.config.ts`.
-5. **The wizard cannot `fetch` an instance.** It is served from
+5. **Capacitor re-raises the webview across navigations.** A native overlay
+   added in `viewDidLoad` is on top at launch and behind the page after the
+   first navigation — so it has to reclaim the top in `viewDidLayoutSubviews`.
+   The symptom is an overlay that only appears after a force-quit.
+6. **The wizard cannot `fetch` an instance.** It is served from
    `capacitor://localhost`, so every request to an instance is cross-origin and
    no self-hoster will have that scheme in `CORS_ALLOWED_ORIGINS`. Hence
    `ServerConfig.probe` runs natively. Anything else the wizard ever needs from

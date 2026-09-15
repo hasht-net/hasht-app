@@ -52,6 +52,16 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         set { UserDefaults.standard.set(newValue, forKey: Self.activeKey) }
     }
 
+    /// Whether there is an instance loaded to get *back* from.
+    var hasActiveServer: Bool {
+        servers.contains { $0.id == activeId }
+    }
+
+    private func announceSwitcher(_ visible: Bool) {
+        NotificationCenter.default.post(
+            name: ServerConfigPlugin.switcherVisibility, object: nil, userInfo: ["visible": visible])
+    }
+
     override public func load() {
         guard let active = servers.first(where: { $0.id == activeId }) else { return }
         load(active.url)
@@ -191,9 +201,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Lets the remote frontend take over server switching once it offers it
     /// in its own UI, so the shell's affordance stops being a second one.
     @objc func setSwitcherVisible(_ call: CAPPluginCall) {
-        let visible = call.getBool("visible") ?? true
-        NotificationCenter.default.post(
-            name: ServerConfigPlugin.switcherVisibility, object: nil, userInfo: ["visible": visible])
+        announceSwitcher(call.getBool("visible") ?? true)
         call.resolve()
     }
 
@@ -203,6 +211,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     /// before the remote frontend is in a position to call anything.
     func returnToWizard() {
         activeId = nil
+        announceSwitcher(false)
         DispatchQueue.main.async { [weak self] in
             guard let local = self?.bridge?.config.serverURL else { return }
             self?.bridge?.webView?.load(URLRequest(url: local))
@@ -213,6 +222,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async { [weak self] in
             guard let url = URL(string: raw), let webView = self?.bridge?.webView else { return }
             webView.load(URLRequest(url: url))
+            self?.announceSwitcher(true)
         }
     }
 }

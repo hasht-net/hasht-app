@@ -46,6 +46,7 @@ class MainViewController: CAPBridgeViewController {
         let button = UIButton(configuration: config)
         button.titleLabel?.font = .systemFont(ofSize: 13, weight: .semibold)
         button.translatesAutoresizingMaskIntoConstraints = false
+        button.isHidden = true
         button.addTarget(self, action: #selector(switchServers), for: .touchUpInside)
         view.addSubview(button)
 
@@ -58,10 +59,28 @@ class MainViewController: CAPBridgeViewController {
         switchButton = button
     }
 
+    /// Capacitor re-raises the webview across navigations, so the button has to
+    /// reclaim the top on every layout pass or it ends up behind the page —
+    /// visible on a cold launch, gone after connecting to an instance.
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        if let button = switchButton, !button.isHidden {
+            view.bringSubviewToFront(button)
+        }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // The wizard itself has nothing to go back to.
+        switchButton?.isHidden = !serverConfig.hasActiveServer
+    }
+
     @objc private func switcherVisibilityChanged(_ note: Notification) {
         let visible = note.userInfo?["visible"] as? Bool ?? true
         DispatchQueue.main.async { [weak self] in
-            self?.switchButton?.isHidden = !visible
+            guard let self = self, let button = self.switchButton else { return }
+            button.isHidden = !visible
+            if visible { self.view.bringSubviewToFront(button) }
         }
     }
 
