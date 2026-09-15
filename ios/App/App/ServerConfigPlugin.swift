@@ -23,6 +23,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "ServerConfig"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "probe", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setSwitcherVisible", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "list", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "add", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "connect", returnType: CAPPluginReturnPromise),
@@ -186,6 +187,17 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         returnToWizard()
         call.resolve()
     }
+
+    /// Lets the remote frontend take over server switching once it offers it
+    /// in its own UI, so the shell's affordance stops being a second one.
+    @objc func setSwitcherVisible(_ call: CAPPluginCall) {
+        let visible = call.getBool("visible") ?? true
+        NotificationCenter.default.post(
+            name: ServerConfigPlugin.switcherVisibility, object: nil, userInfo: ["visible": visible])
+        call.resolve()
+    }
+
+    static let switcherVisibility = Notification.Name("net.hasht.app.switcherVisibility")
 
     /// Also driven by the shell's own escape affordance, which has to work
     /// before the remote frontend is in a position to call anything.
