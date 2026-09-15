@@ -183,12 +183,18 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     /// instance that no longer answers and would otherwise leave the app
     /// pinned to a dead origin.
     @objc func reset(_ call: CAPPluginCall) {
+        returnToWizard()
+        call.resolve()
+    }
+
+    /// Also driven by the shell's own escape affordance, which has to work
+    /// before the remote frontend is in a position to call anything.
+    func returnToWizard() {
         activeId = nil
         DispatchQueue.main.async { [weak self] in
             guard let local = self?.bridge?.config.serverURL else { return }
             self?.bridge?.webView?.load(URLRequest(url: local))
         }
-        call.resolve()
     }
 
     private func load(_ raw: String) {

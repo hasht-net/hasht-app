@@ -252,10 +252,26 @@ public class ServerConfigPlugin extends Plugin {
      */
     @PluginMethod
     public void reset(PluginCall call) {
+        returnToWizard();
+        call.resolve();
+    }
+
+    /**
+     * System-back equivalent of iOS's escape affordance: backing out of an
+     * instance returns to the wizard rather than leaving the app, and forgets
+     * the active server so the next launch does not reload it. Returns false
+     * when there is no instance to back out of, so back behaves normally.
+     */
+    boolean returnToWizardIfRemote() {
+        if (activeId() == null) return false;
+        returnToWizard();
+        return true;
+    }
+
+    private void returnToWizard() {
         setActiveId(null);
         final String local = getBridge().getLocalUrl();
         getActivity().runOnUiThread(() -> getBridge().getWebView().loadUrl(local));
-        call.resolve();
     }
 
     private void loadInstance(final String url) {

@@ -29,6 +29,22 @@ holds only which servers the user added — never credentials, which stay in eac
 origin's own cookie jar. WKWebView isolates those per origin, so switching
 servers keeps sessions separate for free.
 
+### Getting back out
+
+A wrong instance must never be a dead end, and the escape cannot depend on the
+remote frontend cooperating — before sign-in there is nothing to cooperate with.
+So the shell owns one:
+
+- **iOS** — a "‹ Servers" pill, top-leading, that fades after 5s and is
+  re-summoned by tapping the top-left corner. Left-edge swipe also works; the
+  wizard stays in the webview's history.
+- **Android** — system back, which also clears the active server so the next
+  launch does not reload it.
+
+Both clear the active server but keep it in the list. Once the frontend
+integrates, it should offer "switch server" in its own settings via
+`forgetInstance()` — at which point the pill can be hidden post-auth.
+
 `ServerConfig` is a small custom plugin (`ios/App/App/ServerConfigPlugin.swift`,
 `android/.../ServerConfigPlugin.java`) because Capacitor's `server.url` is
 static config and a self-hosted client needs it chosen at runtime.
@@ -70,6 +86,7 @@ Capacitor 8 uses Swift Package Manager on iOS — **no CocoaPods required**.
 | `ServerConfig` plugin | ✅ verified — store, launch reload, remote load |
 | Loads a live instance in-app | ✅ verified against chat.hasht.net |
 | Instance probe (native) | ✅ verified against chat.hasht.net |
+| Escape back to the wizard | ✅ renders (iOS); ⚠️ tap-through not exercised |
 | Connect buttons (tap-through) | ⚠️ not yet exercised — no touch input via simctl |
 | Push | ❌ not started — blocked on the relay |
 | Deep links / auth handoff | ⚠️ manifest + Info.plist wired, no handler |
