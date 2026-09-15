@@ -114,7 +114,10 @@ Four traps, all invisible to a green build:
    first navigation, so it must reclaim the top in `viewDidLayoutSubviews` —
    the symptom is an overlay that only appears after a force-quit. Worth
    knowing before adding any native overlay here.
-6. **The wizard cannot `fetch` an instance.** It is served from
+6. **`env(safe-area-inset-*)` is 0 in this webview**, under every
+   `contentInset` mode. The shell publishes the real insets as CSS variables
+   from `MainViewController`; see roadmap item 6.
+7. **The wizard cannot `fetch` an instance.** It is served from
    `capacitor://localhost`, so every request to an instance is cross-origin and
    no self-hoster will have that scheme in `CORS_ALLOWED_ORIGINS`. Hence
    `ServerConfig.probe` runs natively. Anything else the wizard ever needs from
@@ -138,8 +141,13 @@ Four traps, all invisible to a green build:
 5. Wire the `hasht://` deep link into `auth::native`, using
    `ASWebAuthenticationSession` — note `@capacitor/browser` is
    SFSafariViewController and is *not* the right primitive for this.
-6. Keyboard/safe-area: the frontend's `useViewportKeyboard` assumes Safari
-   behavior and will need adjusting.
+6. **Frontend: consume the safe-area variables.** `env(safe-area-inset-*)`
+   resolves to 0 in this webview (measured under both `contentInset: 'never'`
+   and `'automatic'`), so the frontend's 36 `env()` rules compute to nothing
+   and the mobile top bar lands under the status bar. The shell publishes the
+   real insets as `--hasht-safe-area-{top,right,bottom,left}`; the frontend
+   change is mechanical and PWA-safe:
+   `env(safe-area-inset-top)` → `var(--hasht-safe-area-top, env(safe-area-inset-top))`.
 7. Badge counts.
 
 ## Open questions

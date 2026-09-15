@@ -30,7 +30,8 @@ body {
 .wizard {
   max-width: 440px;
   margin: 0 auto;
-  padding: max(32px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom));
+  padding: max(32px, var(--hasht-safe-area-top, env(safe-area-inset-top))) 20px
+    max(24px, var(--hasht-safe-area-bottom, env(safe-area-inset-bottom)));
 }
 h1 { font-size: 1.5rem; margin: 0 0 6px; }
 h2 {

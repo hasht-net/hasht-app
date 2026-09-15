@@ -29,10 +29,10 @@ const config: CapacitorConfig = {
       presentationOptions: ['badge', 'sound', 'alert'],
     },
     Keyboard: {
-      // 'native' resizes the webview frame itself, which is what a plain form
-      // page wants. Revisit when the chat frontend is integrated — its
-      // useViewportKeyboard expects to own inset handling and may want 'none'.
-      resize: 'native',
+      // The frontend declares interactive-widget=resizes-content and owns
+      // inset handling in useViewportKeyboard; letting the plugin resize the
+      // webview too makes the composer jump on focus.
+      resize: 'none',
     },
   },
 };
