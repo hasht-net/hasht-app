@@ -1,0 +1,25 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+
+# iOS
+ios/App/Pods/
+ios/App/App/public/
+ios/App/build/
+*.xcuserstate
+xcuserdata/
+
+# Android
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+android/app/google-services.json
+android/capacitor-cordova-android-plugins/
+
+# Signing / secrets — never commit
+*.p8
+*.p12
+*.mobileprovision
+.env

@@ -1,0 +1,98 @@
+# hasht-app
+
+Capacitor mobile shell for [Hasht](https://github.com/Hasht-net) — a thin client that
+loads a user-configured server URL. iOS and Android.
+
+Sibling of `hasht-desktop` (Electron). Both wrap the same Vue frontend; neither
+contains a copy of it.
+
+## Architecture
+
+The shell **remote-loads** the frontend from whichever instance the user
+configures. There is no bundled copy of the chat frontend here, so app and
+server versions can never skew and frontend changes ship without an app
+release.
+
+```
+launch
+  └─ stored instance URL?
+       no  → bundled bootstrap picker (index.html, src/bootstrap.ts)
+             └─ probe /api/health + /api/instance-settings
+                └─ ServerConfig.connect(url) → persist + reload webview
+       yes → webview loads that instance directly
+```
+
+`ServerConfig` is a small custom plugin (`ios/App/App/ServerConfigPlugin.swift`,
+`android/.../ServerConfigPlugin.java`) because Capacitor's `server.url` is
+static config and a self-hosted client needs it chosen at runtime.
+
+### Where code runs
+
+Only the picker runs from this repo's assets. Everything after it is the Vue
+app served by the instance — so **native integration code lives in the chat
+frontend**, not here. `src/integration/hashtNative.ts` is the reference
+implementation of that contract, kept in this repo so the app and the API it
+depends on version together.
+
+The native bridge (`window.Capacitor`) is injected into whatever origin the
+webview loads, so the remote frontend can call plugins directly.
+
+## Setup
+
+```sh
+npm install
+npm run build          # builds the bootstrap picker only
+npx cap sync
+npm run ios            # opens Xcode
+npm run android        # opens Android Studio
+```
+
+Capacitor 8 uses Swift Package Manager on iOS — **no CocoaPods required**.
+
+- Bundle ID: `net.hasht.app`
+- Deep link scheme: `hasht://` (consumed by `auth::native`)
+- iOS declares `UIBackgroundModes: audio` — see "Open questions" below.
+
+## Status
+
+Scaffolding only. Both platforms build; nothing has been run against a real
+instance yet.
+
+| | |
+|---|---|
+| iOS project builds | ✅ (`xcodebuild`, unsigned) |
+| Android project builds | ✅ (`compileDebugJavaWithJavac`) |
+| Bootstrap picker | ✅ written, ❌ never run on device |
+| `ServerConfig` plugin | ✅ written, ❌ never run on device |
+| Push | ❌ not started — blocked on the relay |
+| Deep links / auth handoff | ⚠️ manifest + Info.plist wired, no handler |
+| Frontend integration | ⚠️ contract drafted, not yet vendored into chat |
+
+## Roadmap
+
+1. **Verify `UIBackgroundModes: audio` keeps the mic alive** when the app is
+   backgrounded during a call. A day's work, and it decides whether the media
+   plane can stay in the webview or has to go native — the most expensive
+   branch in the plan. WebKit #241480 is still open.
+2. Run the picker on device; confirm the webview reloads into a live instance
+   and that the Capacitor bridge is present on the remote origin.
+3. Push: build the APNs relay (separate repo), add a backend endpoint for
+   native device tokens, add a Notification Service Extension here to decrypt
+   the aes128gcm payload.
+4. Wire the `hasht://` deep link into `auth::native`, using
+   `ASWebAuthenticationSession` — note `@capacitor/browser` is
+   SFSafariViewController and is *not* the right primitive for this.
+5. Keyboard/safe-area: the frontend's `useViewportKeyboard` assumes Safari
+   behavior and will need adjusting.
+6. Badge counts.
+
+## Open questions
+
+- **Background mic** (item 1) — everything else is downstream of it.
+- **App Store 4.2.** A remote-loading shell is the shape Apple scrutinises.
+  Native surface (push, deep links, the picker) has to carry the "not a
+  repackaged website" argument. Guideline 2.1 also requires a demo account
+  against a live backend, which means operating a public demo instance
+  indefinitely.
+- **Plain-HTTP instances.** `NSAllowsLocalNetworking` covers LAN; a public
+  HTTP-only instance is currently refused. Probably correct, worth confirming.

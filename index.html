@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Hasht</title>
+    <link rel="stylesheet" href="/src/bootstrap.css" />
+  </head>
+  <body>
+    <main class="picker">
+      <h1>Connect to a server</h1>
+      <p class="sub">Enter the address of your Hasht instance.</p>
+      <form id="form" novalidate>
+        <input
+          id="url"
+          type="url"
+          inputmode="url"
+          autocapitalize="none"
+          autocorrect="off"
+          spellcheck="false"
+          placeholder="chat.example.com"
+          required
+        />
+        <button id="submit" type="submit">Connect</button>
+      </form>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+    </main>
+    <script type="module" src="/src/bootstrap.ts"></script>
+  </body>
+</html>
