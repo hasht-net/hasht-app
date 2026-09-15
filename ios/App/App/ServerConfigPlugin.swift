@@ -23,7 +23,6 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "ServerConfig"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "probe", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "setSwitcherVisible", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "list", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "add", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "connect", returnType: CAPPluginReturnPromise),
@@ -50,16 +49,6 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     private var activeId: String? {
         get { UserDefaults.standard.string(forKey: Self.activeKey) }
         set { UserDefaults.standard.set(newValue, forKey: Self.activeKey) }
-    }
-
-    /// Whether there is an instance loaded to get *back* from.
-    var hasActiveServer: Bool {
-        servers.contains { $0.id == activeId }
-    }
-
-    private func announceSwitcher(_ visible: Bool) {
-        NotificationCenter.default.post(
-            name: ServerConfigPlugin.switcherVisibility, object: nil, userInfo: ["visible": visible])
     }
 
     override public func load() {
@@ -198,20 +187,10 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve()
     }
 
-    /// Lets the remote frontend take over server switching once it offers it
-    /// in its own UI, so the shell's affordance stops being a second one.
-    @objc func setSwitcherVisible(_ call: CAPPluginCall) {
-        announceSwitcher(call.getBool("visible") ?? true)
-        call.resolve()
-    }
-
-    static let switcherVisibility = Notification.Name("net.hasht.app.switcherVisibility")
-
-    /// Also driven by the shell's own escape affordance, which has to work
-    /// before the remote frontend is in a position to call anything.
+    /// The frontend drives this from its own UI — the shell deliberately shows
+    /// no server-switching control of its own.
     func returnToWizard() {
         activeId = nil
-        announceSwitcher(false)
         DispatchQueue.main.async { [weak self] in
             guard let local = self?.bridge?.config.serverURL else { return }
             self?.bridge?.webView?.load(URLRequest(url: local))
@@ -222,7 +201,6 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async { [weak self] in
             guard let url = URL(string: raw), let webView = self?.bridge?.webView else { return }
             webView.load(URLRequest(url: url))
-            self?.announceSwitcher(true)
         }
     }
 }

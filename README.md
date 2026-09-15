@@ -31,20 +31,21 @@ servers keeps sessions separate for free.
 
 ### Getting back out
 
-A wrong instance must never be a dead end, and the escape cannot depend on the
-remote frontend cooperating — before sign-in there is nothing to cooperate with.
-So the shell owns one:
+**The frontend owns server switching.** The shell renders no control of its
+own: anything it drew would sit over the chat UI forever, duplicating what the
+frontend can present properly in its settings. The frontend calls
+`ServerConfig.reset()` (see `forgetInstance()` in `src/integration/`), which
+clears the active server — keeping it in the list — and returns to the wizard.
 
-- **iOS** — a "‹ Servers" pill, top-leading, shown whenever an instance is
-  loaded (the wizard itself has nothing to go back to). It stays put rather
-  than auto-hiding: an escape the user cannot see is not an escape. Left-edge
-  swipe also works; the wizard stays in the webview's history.
+Two platform gestures remain, neither of them chrome:
+
+- **iOS** — left-edge swipe; the wizard stays in the webview's history.
 - **Android** — system back, which also clears the active server so the next
   launch does not reload it.
 
-Both clear the active server but keep it in the list. Once the frontend offers
-switching in its own settings, it should call `hideShellSwitcher()` after
-sign-in so there aren't two — and `forgetInstance()` to switch.
+**Open gap:** until the frontend ships that control, a signed-out user on the
+wrong instance has only the edge swipe. Offer it from the signed-out screen as
+well as from settings.
 
 `ServerConfig` is a small custom plugin (`ios/App/App/ServerConfigPlugin.swift`,
 `android/.../ServerConfigPlugin.java`) because Capacitor's `server.url` is
@@ -87,7 +88,7 @@ Capacitor 8 uses Swift Package Manager on iOS — **no CocoaPods required**.
 | `ServerConfig` plugin | ✅ verified — store, launch reload, remote load |
 | Loads a live instance in-app | ✅ verified against chat.hasht.net |
 | Instance probe (native) | ✅ verified against chat.hasht.net |
-| Escape back to the wizard | ✅ renders and persists (iOS); ⚠️ tap-through not exercised |
+| Return to wizard | ⚠️ plugin method ready; awaiting the frontend control |
 | Connect buttons (tap-through) | ⚠️ not yet exercised — no touch input via simctl |
 | Push | ❌ not started — blocked on the relay |
 | Deep links / auth handoff | ⚠️ manifest + Info.plist wired, no handler |
@@ -110,8 +111,9 @@ Four traps, all invisible to a green build:
    the instance is user-supplied; see the TODO in `capacitor.config.ts`.
 5. **Capacitor re-raises the webview across navigations.** A native overlay
    added in `viewDidLoad` is on top at launch and behind the page after the
-   first navigation — so it has to reclaim the top in `viewDidLayoutSubviews`.
-   The symptom is an overlay that only appears after a force-quit.
+   first navigation, so it must reclaim the top in `viewDidLayoutSubviews` —
+   the symptom is an overlay that only appears after a force-quit. Worth
+   knowing before adding any native overlay here.
 6. **The wizard cannot `fetch` an instance.** It is served from
    `capacitor://localhost`, so every request to an instance is cross-origin and
    no self-hoster will have that scheme in `CORS_ALLOWED_ORIGINS`. Hence
@@ -131,12 +133,14 @@ Four traps, all invisible to a green build:
 3. Push: build the APNs relay (separate repo), add a backend endpoint for
    native device tokens, add a Notification Service Extension here to decrypt
    the aes128gcm payload.
-4. Wire the `hasht://` deep link into `auth::native`, using
+4. Frontend: a "switch server" control calling `forgetInstance()`, reachable
+   both signed-in and signed-out. Closes the gap above.
+5. Wire the `hasht://` deep link into `auth::native`, using
    `ASWebAuthenticationSession` — note `@capacitor/browser` is
    SFSafariViewController and is *not* the right primitive for this.
-5. Keyboard/safe-area: the frontend's `useViewportKeyboard` assumes Safari
+6. Keyboard/safe-area: the frontend's `useViewportKeyboard` assumes Safari
    behavior and will need adjusting.
-6. Badge counts.
+7. Badge counts.
 
 ## Open questions
 

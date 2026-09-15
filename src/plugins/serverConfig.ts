@@ -33,11 +33,6 @@ export interface ServerConfigPlugin {
   rename(options: { id: string; name: string }): Promise<void>;
   /** Back to the wizard without forgetting anything — sign-out, dead instance. */
   reset(): Promise<void>;
-  /**
-   * Hides the shell's own "Servers" escape affordance. Call with `false` once
-   * the frontend offers server switching itself, so there aren't two.
-   */
-  setSwitcherVisible(options: { visible: boolean }): Promise<void>;
 }
 
 export const ServerConfig = registerPlugin<ServerConfigPlugin>('ServerConfig');

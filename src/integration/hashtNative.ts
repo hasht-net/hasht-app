@@ -85,15 +85,10 @@ export function onDeepLink(handler: (url: URL) => void): void {
 }
 
 /**
- * The shell shows its own "Servers" pill so a wrong instance is never a dead
- * end. Once the frontend offers switching in its own settings, call this after
- * sign-in so the user isn't looking at two of them.
+ * Returns the shell to the instance wizard. The shell shows no server-switching
+ * control of its own, so the frontend owns this entirely — offer it both from
+ * settings and from the signed-out screen, or a wrong instance is a dead end.
  */
-export async function hideShellSwitcher(): Promise<void> {
-  await capacitor()?.Plugins?.ServerConfig?.setSwitcherVisible({ visible: false });
-}
-
-/** Sign-out returns the shell to the instance wizard. */
 export async function forgetInstance(): Promise<void> {
   await capacitor()?.Plugins?.ServerConfig?.reset();
 }
