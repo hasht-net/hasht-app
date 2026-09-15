@@ -31,7 +31,9 @@ servers keeps sessions separate for free.
 
 ### Getting back out
 
-**The frontend owns server switching.** The shell renders no control of its
+**The frontend owns server switching**, and tells the shell when the user signs
+out (`ServerConfig.signOut`, which clears delivered notifications and the badge
+without navigating — the home for push unregistration later). The shell renders no control of its
 own: anything it drew would sit over the chat UI forever, duplicating what the
 frontend can present properly in its settings. The frontend calls
 `ServerConfig.reset()` (see `forgetInstance()` in `src/integration/`), which
