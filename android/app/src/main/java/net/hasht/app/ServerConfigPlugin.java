@@ -9,6 +9,8 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
+import androidx.core.app.NotificationManagerCompat;
+
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -143,6 +145,19 @@ public class ServerConfigPlugin extends Plugin {
         } finally {
             connection.disconnect();
         }
+    }
+
+    /**
+     * The frontend signed the user out. Drops session-scoped native state and
+     * deliberately does not navigate — signing out leaves you on the same
+     * instance's login screen, as it does on the web.
+     *
+     * Where push unregistration belongs once push exists.
+     */
+    @PluginMethod
+    public void signOut(PluginCall call) {
+        NotificationManagerCompat.from(getContext()).cancelAll();
+        call.resolve();
     }
 
     @PluginMethod
