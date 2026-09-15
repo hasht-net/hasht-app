@@ -15,6 +15,7 @@ class MainViewController: CAPBridgeViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        observeKeyboard()
         // A left-edge swipe walks back to the wizard, which is still in the
         // webview's history after the instance is loaded into it. Switching
         // servers proper belongs to the frontend (`ServerConfig.reset`); this
@@ -80,5 +81,54 @@ class MainViewController: CAPBridgeViewController {
             source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true)
         controller.addUserScript(script)
         insetScript = script
+    }
+}
+
+// MARK: - Keyboard
+
+/// Publishes the keyboard's height as `--hasht-keyboard-inset` and fires
+/// `hasht:keyboard` so the page can react.
+///
+/// The page cannot work this out for itself here. Capacitor is configured
+/// `resize: 'none'` — the frontend owns its own insets — so WKWebView never
+/// shrinks `visualViewport`, and the frontend's "did the viewport get shorter"
+/// heuristic never fires. Its fallback of "an editable has focus" is wrong in
+/// the other direction: with a hardware keyboard nothing covers the screen,
+/// but the composer still collapses its safe-area padding and drops.
+///
+/// UIKit knows the real answer, including the zero-height case, so it says so.
+extension MainViewController {
+    func observeKeyboard() {
+        let center = NotificationCenter.default
+        for name in [UIResponder.keyboardWillChangeFrameNotification,
+                     UIResponder.keyboardWillShowNotification] {
+            center.addObserver(
+                self, selector: #selector(keyboardFrameChanged(_:)), name: name, object: nil)
+        }
+        center.addObserver(
+            self, selector: #selector(keyboardHidden), name: UIResponder.keyboardWillHideNotification,
+            object: nil)
+    }
+
+    @objc private func keyboardFrameChanged(_ note: Notification) {
+        guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
+        else { return }
+        // Only the part that actually overlaps the web view counts: a hardware
+        // keyboard parks the frame off-screen, which must read as zero.
+        let overlap = view.bounds.intersection(view.convert(frame, from: nil)).height
+        publishKeyboardInset(max(0, overlap.isFinite ? overlap : 0))
+    }
+
+    @objc private func keyboardHidden() {
+        publishKeyboardInset(0)
+    }
+
+    private func publishKeyboardInset(_ inset: CGFloat) {
+        let js = """
+        (function(){document.documentElement.style.setProperty(\
+        '--hasht-keyboard-inset','\(inset)px');\
+        window.dispatchEvent(new CustomEvent('hasht:keyboard',{detail:{inset:\(inset)}}));})();
+        """
+        webView?.evaluateJavaScript(js)
     }
 }
