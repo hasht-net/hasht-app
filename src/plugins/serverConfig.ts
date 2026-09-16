@@ -31,7 +31,13 @@ export interface ServerConfigPlugin {
   connect(options: { id: string }): Promise<void>;
   remove(options: { id: string }): Promise<void>;
   rename(options: { id: string; name: string }): Promise<void>;
-  /** Back to the wizard without forgetting anything — sign-out, dead instance. */
+  /**
+   * The frontend signed the user out. Drops session-scoped native state
+   * (delivered notifications, badge, and later the push registration); does
+   * not navigate.
+   */
+  signOut(): Promise<void>;
+  /** Back to the wizard without forgetting anything — a dead instance, or an explicit switch. */
   reset(): Promise<void>;
 }
 

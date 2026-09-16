@@ -1,10 +1,13 @@
 import Capacitor
 import UIKit
+import WebKit
 
 /// Capacitor only auto-discovers plugins from packages, so anything defined in
 /// the app target has to be handed to the bridge explicitly.
 class MainViewController: CAPBridgeViewController {
     private let serverConfig = ServerConfigPlugin()
+    private var insetScript: WKUserScript?
+    private var published: UIEdgeInsets = .init(top: -1, left: -1, bottom: -1, right: -1)
 
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(serverConfig)
@@ -12,6 +15,7 @@ class MainViewController: CAPBridgeViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        observeKeyboard()
         // A left-edge swipe walks back to the wizard, which is still in the
         // webview's history after the instance is loaded into it. Switching
         // servers proper belongs to the frontend (`ServerConfig.reset`); this
@@ -41,20 +45,90 @@ class MainViewController: CAPBridgeViewController {
     /// Consume them with `env()` still as the fallback, so the same CSS keeps
     /// working in the browser and as an installed PWA:
     ///   `padding-top: var(--hasht-safe-area-top, env(safe-area-inset-top));`
+    ///
+    /// Delivered two ways on purpose. `evaluateJavaScript` only reaches the
+    /// document that is loaded *now*, so on its own the instance page — a
+    /// separate document from the wizard — would come up bare. The user script
+    /// runs at document start for every navigation, which is what actually
+    /// covers the instance.
     private func publishSafeAreaInsets() {
+        guard let webView = webView else { return }
         let insets = view.safeAreaInsets
-        guard insets != lastPublished else { return }
-        lastPublished = insets
+        guard insets != published else { return }
+        published = insets
 
-        let js = """
+        let source = """
         (function(){var s=document.documentElement.style;\
         s.setProperty('--hasht-safe-area-top','\(insets.top)px');\
         s.setProperty('--hasht-safe-area-right','\(insets.right)px');\
         s.setProperty('--hasht-safe-area-bottom','\(insets.bottom)px');\
         s.setProperty('--hasht-safe-area-left','\(insets.left)px');})();
         """
-        webView?.evaluateJavaScript(js)
+
+        webView.evaluateJavaScript(source)
+        reinstallInsetScript(source, in: webView.configuration.userContentController)
     }
 
-    private var lastPublished: UIEdgeInsets = .init(top: -1, left: -1, bottom: -1, right: -1)
+    /// `WKUserContentController` can only remove *all* user scripts, and
+    /// Capacitor's bridge is installed as user scripts too — so keep everyone
+    /// else's and swap only our own.
+    private func reinstallInsetScript(_ source: String, in controller: WKUserContentController) {
+        let others = controller.userScripts.filter { $0 !== insetScript }
+        controller.removeAllUserScripts()
+        others.forEach { controller.addUserScript($0) }
+
+        let script = WKUserScript(
+            source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true)
+        controller.addUserScript(script)
+        insetScript = script
+    }
+}
+
+// MARK: - Keyboard
+
+/// Publishes the keyboard's height as `--hasht-keyboard-inset` and fires
+/// `hasht:keyboard` so the page can react.
+///
+/// The page cannot work this out for itself here. Capacitor is configured
+/// `resize: 'none'` — the frontend owns its own insets — so WKWebView never
+/// shrinks `visualViewport`, and the frontend's "did the viewport get shorter"
+/// heuristic never fires. Its fallback of "an editable has focus" is wrong in
+/// the other direction: with a hardware keyboard nothing covers the screen,
+/// but the composer still collapses its safe-area padding and drops.
+///
+/// UIKit knows the real answer, including the zero-height case, so it says so.
+extension MainViewController {
+    func observeKeyboard() {
+        let center = NotificationCenter.default
+        for name in [UIResponder.keyboardWillChangeFrameNotification,
+                     UIResponder.keyboardWillShowNotification] {
+            center.addObserver(
+                self, selector: #selector(keyboardFrameChanged(_:)), name: name, object: nil)
+        }
+        center.addObserver(
+            self, selector: #selector(keyboardHidden), name: UIResponder.keyboardWillHideNotification,
+            object: nil)
+    }
+
+    @objc private func keyboardFrameChanged(_ note: Notification) {
+        guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
+        else { return }
+        // Only the part that actually overlaps the web view counts: a hardware
+        // keyboard parks the frame off-screen, which must read as zero.
+        let overlap = view.bounds.intersection(view.convert(frame, from: nil)).height
+        publishKeyboardInset(max(0, overlap.isFinite ? overlap : 0))
+    }
+
+    @objc private func keyboardHidden() {
+        publishKeyboardInset(0)
+    }
+
+    private func publishKeyboardInset(_ inset: CGFloat) {
+        let js = """
+        (function(){document.documentElement.style.setProperty(\
+        '--hasht-keyboard-inset','\(inset)px');\
+        window.dispatchEvent(new CustomEvent('hasht:keyboard',{detail:{inset:\(inset)}}));})();
+        """
+        webView?.evaluateJavaScript(js)
+    }
 }

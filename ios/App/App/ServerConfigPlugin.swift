@@ -1,5 +1,7 @@
 import Capacitor
 import Foundation
+import UIKit
+import UserNotifications
 
 private struct ServerEntry: Codable {
     let id: String
@@ -23,6 +25,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "ServerConfig"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "probe", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "signOut", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "list", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "add", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "connect", returnType: CAPPluginReturnPromise),
@@ -115,6 +118,23 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             completion(name)
         }.resume()
+    }
+
+    /// The frontend signed the user out. Drops session-scoped native state and
+    /// deliberately does *not* navigate — signing out leaves you on the same
+    /// instance's login screen, as it does on the web.
+    ///
+    /// Where push unregistration belongs once push exists.
+    @objc func signOut(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+            if #available(iOS 16.0, *) {
+                UNUserNotificationCenter.current().setBadgeCount(0)
+            } else {
+                UIApplication.shared.applicationIconBadgeNumber = 0
+            }
+        }
+        call.resolve()
     }
 
     @objc func list(_ call: CAPPluginCall) {
