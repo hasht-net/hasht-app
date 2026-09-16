@@ -80,6 +80,111 @@ Capacitor 8 uses Swift Package Manager on iOS — **no CocoaPods required**.
 - Deep link scheme: `hasht://` (consumed by `auth::native`)
 - iOS declares `UIBackgroundModes: audio` — see "Open questions" below.
 
+## Releasing
+
+Two workflows, mirroring `Hasht-net/hasht-chat`:
+
+- **`.github/workflows/draft.yaml`** — every push to `main` recreates a single
+  draft release with freshly generated notes and the next version
+  (`v0.1.0-beta.1` → `v0.1.0-beta.2`). Nothing ships. Publishing is manual: edit
+  the draft in the Releases UI and hit publish. To cut a stable version, change
+  the draft's tag to `v0.1.0` and clear the prerelease flag before publishing.
+
+- **`.github/workflows/release.yaml`** — runs on publish, one job per platform
+  so both binaries share a single build number (`github.run_number`). Stores
+  reject a build number that goes backwards, and split workflows would drift.
+
+| release | iOS | Android |
+|---|---|---|
+| prerelease `v0.1.0-beta.3` | TestFlight | Play `internal`, rolled out |
+| stable `v0.1.0` | App Store Connect version, **not** submitted | Play `production`, **draft** |
+
+Neither store submission is automatic — the last step is always a human. Both
+jobs also attach their artifact (`.ipa`, `.apk`) to the GitHub release, so a
+self-hoster can sideload the exact build that went to the stores.
+
+`workflow_dispatch` rebuilds an existing tag (`tag` input) and can target one
+platform (`platforms: ios | android | both`) to retry a single leg.
+
+### The shared build step
+
+Both jobs run the same three commands before touching a native toolchain:
+
+```sh
+npm ci
+npm run build          # the bootstrap picker
+npx cap sync ios|android
+```
+
+That is the whole cross-platform surface. `ios/App/App/public/` and the Android
+assets dir are generated, gitignored, and never committed — only the native
+*projects* are (see AGENTS.md).
+
+### Secrets
+
+Store upload steps no-op with a `::notice::` when their credentials are absent,
+so the workflow is useful (builds + release assets) before the store accounts
+exist. Android still requires a keystore to produce a release build at all.
+
+| Secret | Used by | What it is |
+|---|---|---|
+| `ANDROID_KEYSTORE` | Android | base64 of the upload keystore (**required**) |
+| `ANDROID_KEYSTORE_PASS` | Android | keystore password |
+| `ANDROID_KEY_ALIAS` | Android | key alias inside the keystore |
+| `ANDROID_KEY_PASS` | Android | key password (falls back to the store pass) |
+| `GOOGLE_PLAY_SERVICE_ACCOUNT` | Android | Play publisher service-account JSON |
+| `GOOGLE_SERVICES` | Android | base64 `google-services.json`, for FCM |
+| `ASC_API_ID` / `ASC_ISSUER_ID` / `ASC_API_KEY` | iOS | App Store Connect API key (`.p8`, raw or base64) |
+| `APPLE_ID` / `APPLE_TEAM_ID` | iOS | developer account and team |
+| `MATCH_PASSWORD` | iOS | passphrase for the match certificates repo |
+| `MATCH_SSH_KEY` | iOS | deploy key with read access to that repo |
+| `DISCORD_WEBHOOK` | both | failure notifications |
+
+Plus one repository **variable**: `MATCH_URL`, the SSH URL of the private
+certificates repo (`git@github.com:Hasht-net/ios-match-certs.git`) — the
+sibling of `django-files/ios-match-certs`.
+
+### iOS signing
+
+`fastlane match` in `readonly` mode: CI consumes the certificates repo and
+never writes to it. Bootstrap it once, locally:
+
+```sh
+bundle install
+MATCH_URL=git@github.com:Hasht-net/ios-match-certs.git \
+  bundle exec fastlane match appstore
+```
+
+The Capacitor-generated project ships `CODE_SIGN_STYLE = Automatic`, which
+ignores a match profile; `prepare_signing` in `fastlane/Fastfile` pins the
+target to manual signing for the run. Versions are passed as `xcargs` build
+setting overrides (`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`) rather than
+edited into `project.pbxproj` — `Info.plist` already resolves both through
+`$(...)`, and nothing tracked gets mutated.
+
+`ios/App/App.xcodeproj/xcshareddata/xcschemes/App.xcscheme` is committed because
+Xcode autocreates the `App` scheme into `xcuserdata/`, which is gitignored —
+CI would find no scheme at all.
+
+### Android signing
+
+`android/app/build.gradle` defines the release signing config **only** when
+`HASHT_KEYSTORE_PATH` is set, so a local `assembleRelease` still builds
+unsigned without the release secrets. `versionCode`/`versionName` come from
+`-PhashtVersionCode` / `-PhashtVersionName`, defaulting to `1` / `1.0`.
+
+Play App Signing holds the real app key; the keystore above is the *upload*
+key.
+
+### Before the first run
+
+Both stores need the app to exist before any automation can reach it:
+
+- App Store Connect: create the `net.hasht.app` app record. Guideline 2.1 also
+  wants a demo account against a live instance — see "Open questions".
+- Google Play: create the app and upload one AAB **by hand**; the publisher API
+  refuses the first upload for a package it has never seen.
+
 ## Status
 
 | | |

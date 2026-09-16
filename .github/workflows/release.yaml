@@ -1,0 +1,389 @@
+name: "Release"
+
+# Ships the published release to both stores. One workflow, one job per
+# platform, so a single `github.run_number` is the build number everywhere —
+# split workflows would drift, and both stores reject a build number that goes
+# backwards.
+#
+#   prerelease (v0.1.0-beta.3)  ->  TestFlight  +  Play internal track
+#   stable     (v0.1.0)         ->  App Store Connect  +  Play production
+#
+# Neither store submission is automatic: the iOS lane creates the version and
+# stops, the Play upload lands in a draft-able track. A human presses submit.
+#
+# Both jobs also attach their artifact (.ipa / .apk) to the GitHub release, and
+# that part works with no store credentials at all — the store upload steps
+# no-op with a notice until their secrets exist. See README, "Releasing".
+
+on:
+  release:
+    types: [published]
+  # Rebuild/re-upload an existing tag without re-publishing the release.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build (e.g. v0.1.0)"
+        required: true
+        type: string
+      platforms:
+        description: "Which platforms to ship"
+        required: true
+        default: both
+        type: choice
+        options: [both, ios, android]
+
+# One release at a time. Never cancel in flight — a half-uploaded store build
+# is worse than a slow one.
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  # Resolves tag/version/build/prerelease once so neither platform job has to
+  # branch on event type.
+  meta:
+    name: "Resolve Release"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+      build: ${{ steps.resolve.outputs.build }}
+      sha: ${{ steps.resolve.outputs.sha }}
+      prerelease: ${{ steps.resolve.outputs.prerelease }}
+      ios: ${{ steps.resolve.outputs.ios }}
+      android: ${{ steps.resolve.outputs.android }}
+    steps:
+      - name: "Resolve Target"
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLATFORMS: ${{ inputs.platforms || 'both' }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "release" ]; then
+            tag="${{ github.event.release.tag_name }}"
+            prerelease="${{ github.event.release.prerelease }}"
+          else
+            tag="${{ inputs.tag }}"
+            # Inherit the release's own flag, or a manual beta rebuild would
+            # ship to production.
+            prerelease=$(gh release view "$tag" --repo "${{ github.repository }}" \
+              --json isPrerelease -q .isPrerelease)
+          fi
+          case "$tag" in
+            v[0-9]*) ;;
+            *) echo "::error::Release tag '$tag' must look like vX.Y.Z"; exit 1 ;;
+          esac
+          # Both stores want a bare X.Y.Z marketing version, so the -beta.N
+          # suffix is dropped. The tag itself stays on the GitHub release.
+          version="${tag#v}"
+          version="${version%%-*}"
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            # Monotonic across every run of this workflow, and shared by both
+            # platforms so a given build number means the same binary pair.
+            echo "build=${{ github.run_number }}"
+            echo "sha=$(gh api "/repos/${{ github.repository }}/commits/$tag" -q .sha)"
+            echo "prerelease=$prerelease"
+            [ "$PLATFORMS" = "android" ] && echo "ios=false" || echo "ios=true"
+            [ "$PLATFORMS" = "ios" ] && echo "android=false" || echo "android=true"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: "Debug"
+        run: |
+          echo "tag=${{ steps.resolve.outputs.tag }}"
+          echo "version=${{ steps.resolve.outputs.version }}"
+          echo "build=${{ steps.resolve.outputs.build }}"
+          echo "sha=${{ steps.resolve.outputs.sha }}"
+          echo "prerelease=${{ steps.resolve.outputs.prerelease }}"
+          echo "ios=${{ steps.resolve.outputs.ios }}"
+          echo "android=${{ steps.resolve.outputs.android }}"
+
+  android:
+    name: "Android"
+    runs-on: ubuntu-latest
+    needs: meta
+    if: ${{ needs.meta.outputs.android == 'true' }}
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      aab: android/app/build/outputs/bundle/release/app-release.aab
+      apk: android/app/build/outputs/apk/release/app-release.apk
+      keystore: ${{ github.workspace }}/release.keystore
+
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.meta.outputs.sha }}
+
+      - name: "Setup Node"
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: "Setup Java"
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: "Setup Gradle"
+        uses: gradle/actions/setup-gradle@v4
+
+      # The shared half of a cross-platform build: install, build the bootstrap
+      # picker, copy it and the plugin list into the native project. Identical
+      # to the iOS job — only the `cap sync` target differs.
+      - name: "Build Web Assets"
+        run: |
+          npm ci
+          npm run build
+          npx cap sync android
+
+      # Only needed for push; build.gradle skips the google-services plugin
+      # when the file is absent, so an unset secret is not fatal.
+      - name: "Write Google Services File"
+        env:
+          GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES" ]; then
+            echo "$GOOGLE_SERVICES" | base64 --decode > android/app/google-services.json
+            stat android/app/google-services.json
+          else
+            echo "::notice::GOOGLE_SERVICES unset — building without FCM"
+          fi
+
+      - name: "Write Keystore"
+        id: signing
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE" ]; then
+            echo "::error::ANDROID_KEYSTORE is required to build a release"
+            exit 1
+          fi
+          echo "$ANDROID_KEYSTORE" | base64 --decode > "${{ env.keystore }}"
+          keytool -list -keystore "${{ env.keystore }}" \
+            -storepass "${{ secrets.ANDROID_KEYSTORE_PASS }}"
+
+      # The AAB is what Play takes; the APK is for the GitHub release, so
+      # self-hosters can sideload the same build.
+      - name: "Gradle Build"
+        working-directory: android
+        env:
+          HASHT_KEYSTORE_PATH: ${{ env.keystore }}
+          HASHT_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          HASHT_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          HASHT_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASS || secrets.ANDROID_KEYSTORE_PASS }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew bundleRelease assembleRelease \
+            -PhashtVersionCode=${{ needs.meta.outputs.build }} \
+            -PhashtVersionName=${{ needs.meta.outputs.version }}
+
+      - name: "Debug Outputs"
+        continue-on-error: true
+        run: |
+          ls -lAh "$(dirname "${{ env.aab }}")" "$(dirname "${{ env.apk }}")"
+
+      - name: "Upload Artifacts"
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-${{ needs.meta.outputs.tag }}
+          path: |
+            ${{ env.aab }}
+            ${{ env.apk }}
+          if-no-files-found: error
+
+      - name: "Upload APK to Release"
+        if: ${{ github.event_name == 'release' }}
+        uses: cssnr/upload-release-action@v1
+        with:
+          files: ${{ env.apk }}
+          overwrite: true
+
+      # Release notes down to the first heading become the "What's new" text.
+      - name: "Generate Whats New"
+        env:
+          BODY: ${{ github.event.release.body }}
+        run: |
+          mkdir -p whatsNew
+          # Play caps this at 500 chars and rejects anything longer.
+          printf '%s' "${BODY%%#*}" | tr -d '\r' | head -c 500 > whatsNew/whatsnew-en-US
+          # A manual rebuild carries no release body, and Play rejects an empty
+          # whatsnew file.
+          if [ ! -s whatsNew/whatsnew-en-US ]; then
+            printf 'Hasht %s' "${{ needs.meta.outputs.version }}" > whatsNew/whatsnew-en-US
+          fi
+          cat whatsNew/whatsnew-en-US
+
+      - name: "Check Play Credentials"
+        id: play
+        env:
+          SA: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT }}
+        run: |
+          if [ -n "$SA" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::GOOGLE_PLAY_SERVICE_ACCOUNT unset — skipping Play upload"
+          fi
+
+      # Prereleases go to `internal` (instant, no review); stable goes to
+      # `production` as a draft that a human rolls out.
+      - name: "Upload to Google Play"
+        if: ${{ steps.play.outputs.ready == 'true' }}
+        uses: r0adkll/upload-google-play@935ef9c68bb393a8e6116b1575626a7f5be3a7fb # v1.1.3
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT }}
+          packageName: net.hasht.app
+          releaseFiles: ${{ env.aab }}
+          whatsNewDirectory: whatsNew
+          releaseName: "${{ needs.meta.outputs.version }} (${{ needs.meta.outputs.build }})"
+          track: ${{ needs.meta.outputs.prerelease == 'true' && 'internal' || 'production' }}
+          status: ${{ needs.meta.outputs.prerelease == 'true' && 'completed' || 'draft' }}
+
+      - name: "Write Job Summary"
+        if: ${{ always() }}
+        continue-on-error: true
+        run: |
+          {
+            echo "## Android ${{ needs.meta.outputs.tag }}"
+            echo
+            echo "- version: \`${{ needs.meta.outputs.version }}\` (code \`${{ needs.meta.outputs.build }}\`)"
+            echo "- play track: \`${{ needs.meta.outputs.prerelease == 'true' && 'internal' || 'production' }}\`"
+            echo "- play upload: \`${{ steps.play.outputs.ready || 'false' }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "Send Failure Notification"
+        if: ${{ failure() && github.event_name == 'release' }}
+        uses: sarisia/actions-status-discord@v1
+        continue-on-error: true
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          description: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  ios:
+    name: "iOS"
+    runs-on: macos-26
+    needs: meta
+    if: ${{ needs.meta.outputs.ios == 'true' }}
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    env:
+      ipa: build/Hasht.ipa
+
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.meta.outputs.sha }}
+
+      - name: "Check Signing Credentials"
+        id: signing
+        env:
+          ASC_API_KEY: ${{ secrets.ASC_API_KEY }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+        run: |
+          if [ -n "$ASC_API_KEY" ] && [ -n "$MATCH_PASSWORD" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::ASC_API_KEY/MATCH_PASSWORD unset — skipping the iOS build"
+          fi
+
+      - name: "Setup Node"
+        if: ${{ steps.signing.outputs.ready == 'true' }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: "Setup Ruby"
+        if: ${{ steps.signing.outputs.ready == 'true' }}
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      - name: "Select Xcode"
+        if: ${{ steps.signing.outputs.ready == 'true' }}
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      # Same shared step as the Android job; Capacitor 8 on iOS is SPM, so
+      # there is no pod install to follow it.
+      - name: "Build Web Assets"
+        if: ${{ steps.signing.outputs.ready == 'true' }}
+        run: |
+          npm ci
+          npm run build
+          npx cap sync ios
+
+      # The match repo is private and cloned over SSH.
+      - name: "Add SSH Key"
+        if: ${{ steps.signing.outputs.ready == 'true' }}
+        uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.MATCH_SSH_KEY }}
+
+      - name: "Fastlane ${{ needs.meta.outputs.prerelease == 'true' && 'beta' || 'release' }}"
+        if: ${{ steps.signing.outputs.ready == 'true' }}
+        run: |
+          bundle exec fastlane ${{ needs.meta.outputs.prerelease == 'true' && 'beta' || 'release' }}
+        env:
+          CI: true
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_API_ID: ${{ secrets.ASC_API_ID }}
+          ASC_API_KEY: ${{ secrets.ASC_API_KEY }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_URL: ${{ vars.MATCH_URL }}
+          VERSION_NUMBER: ${{ needs.meta.outputs.version }}
+          BUILD_NUMBER: ${{ needs.meta.outputs.build }}
+          FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: 120
+
+      - name: "Upload Artifacts"
+        if: ${{ steps.signing.outputs.ready == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-${{ needs.meta.outputs.tag }}
+          path: |
+            ${{ env.ipa }}
+            build/*.dSYM.zip
+          if-no-files-found: error
+
+      - name: "Upload IPA to Release"
+        if: ${{ steps.signing.outputs.ready == 'true' && github.event_name == 'release' }}
+        uses: cssnr/upload-release-action@v1
+        with:
+          files: ${{ env.ipa }}
+          overwrite: true
+
+      - name: "Write Job Summary"
+        if: ${{ always() }}
+        continue-on-error: true
+        run: |
+          {
+            echo "## iOS ${{ needs.meta.outputs.tag }}"
+            echo
+            echo "- version: \`${{ needs.meta.outputs.version }}\` (build \`${{ needs.meta.outputs.build }}\`)"
+            echo "- lane: \`${{ needs.meta.outputs.prerelease == 'true' && 'beta' || 'release' }}\`"
+            echo "- signed build: \`${{ steps.signing.outputs.ready }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "Send Failure Notification"
+        if: ${{ failure() && github.event_name == 'release' }}
+        uses: sarisia/actions-status-discord@v1
+        continue-on-error: true
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          description: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

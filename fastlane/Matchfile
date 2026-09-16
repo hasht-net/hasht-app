@@ -1,0 +1,5 @@
+# The certificates repo is private and separate — see README, "iOS signing".
+git_url(ENV["MATCH_URL"])
+storage_mode("git")
+type("appstore")
+app_identifier(["net.hasht.app"])
