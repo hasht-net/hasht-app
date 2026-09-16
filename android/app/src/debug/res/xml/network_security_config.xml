@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only (src/debug overlay): the release manifest never sees
+     this, so shipped builds keep Android's HTTPS-only default. Lets the app
+     reach a dev server over plain HTTP - 10.0.2.2 is the host machine as seen
+     from the emulator. -->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">10.0.2.2</domain>
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>

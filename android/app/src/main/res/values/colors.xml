@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The frontend's bg-primary token. Shows through wherever the webview is
+         inset from the system bars, so it has to match the page behind it.
+         Kept in sync by hand with style.css (and useTheme's STATUS_BAR_COLOR). -->
+    <color name="hasht_window_background">#ffffff</color>
+</resources>

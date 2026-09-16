@@ -81,7 +81,13 @@ public class ServerConfigPlugin extends Plugin {
     public void load() {
         try {
             JSONObject active = activeId() == null ? null : find(activeId());
-            if (active != null) loadInstance(active.getString("url"));
+            // post(), not loadUrl() directly: Capacitor loads the bundled
+            // wizard right after this returns, so navigating now would just be
+            // overwritten. Queuing it behind that call wins instead.
+            if (active != null) {
+                final String url = active.getString("url");
+                getBridge().getWebView().post(() -> getBridge().getWebView().loadUrl(url));
+            }
         } catch (JSONException e) {
             // A corrupt store just means the user picks again.
         }
