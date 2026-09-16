@@ -1,8 +1,13 @@
 package net.hasht.app;
 
+import android.content.Context;
 import android.content.SharedPreferences;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
+import android.view.Window;
 
+import com.getcapacitor.CapConfig;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -10,13 +15,21 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import androidx.core.app.NotificationManagerCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.UUID;
@@ -25,8 +38,14 @@ import java.util.UUID;
  * The servers the user has added, and which one the webview is pointed at.
  *
  * Capacitor's server.url is static config, so the instance a self-hoster types
- * in can only be applied natively. On launch we reload straight into the active
- * server; with none set the bundled wizard is what the user sees.
+ * in has to be injected into that config before the bridge starts. MainActivity
+ * asks runtimeConfig() for a CapConfig carrying the active server, so Capacitor
+ * treats it as the app origin: it intercepts that host and injects the bridge,
+ * which a plain webView.loadUrl() to a remote origin never gets. With no active
+ * server the bundled wizard is what the user sees.
+ *
+ * Switching servers therefore recreates the activity rather than navigating -
+ * the config is read once, at bridge construction.
  *
  * Mirrors hasht-desktop's serverStore.ts. Holds only which servers the user
  * added — never credentials, which stay in each origin's own cookie jar.
@@ -38,8 +57,12 @@ public class ServerConfigPlugin extends Plugin {
     private static final String KEY_SERVERS = "servers";
     private static final String KEY_ACTIVE = "activeServerId";
 
+    private static SharedPreferences prefs(Context context) {
+        return context.getSharedPreferences(PREFS, 0);
+    }
+
     private SharedPreferences prefs() {
-        return getContext().getSharedPreferences(PREFS, 0);
+        return prefs(getContext());
     }
 
     private JSONArray servers() {
@@ -77,20 +100,63 @@ public class ServerConfigPlugin extends Plugin {
         return null;
     }
 
-    @Override
-    public void load() {
+    /**
+     * The Capacitor config the activity should start the bridge with: the
+     * bundled config with server.url pointed at the active instance, or null
+     * when there is none and the bundled wizard should load instead.
+     *
+     * Written to and reloaded from the app's file-space because CapConfig can
+     * only be built from a Builder (which would silently drop every key we did
+     * not re-list) or from a file. Round-tripping the real capacitor.config.json
+     * keeps the two in sync on their own.
+     */
+    static CapConfig runtimeConfig(Context context) {
+        String url = activeServerUrl(context);
+        if (url == null) return null;
         try {
-            JSONObject active = activeId() == null ? null : find(activeId());
-            // post(), not loadUrl() directly: Capacitor loads the bundled
-            // wizard right after this returns, so navigating now would just be
-            // overwritten. Queuing it behind that call wins instead.
-            if (active != null) {
-                final String url = active.getString("url");
-                getBridge().getWebView().post(() -> getBridge().getWebView().loadUrl(url));
+            JSONObject config = new JSONObject(readAsset(context, "capacitor.config.json"));
+            JSONObject server = config.optJSONObject("server");
+            if (server == null) server = new JSONObject();
+            server.put("url", url);
+            config.put("server", server);
+
+            File dir = context.getFilesDir();
+            try (Writer writer = new OutputStreamWriter(
+                     new FileOutputStream(new File(dir, "capacitor.config.json")),
+                     StandardCharsets.UTF_8)) {
+                writer.write(config.toString());
+            }
+            return CapConfig.loadFromFile(context, dir.getAbsolutePath());
+        } catch (Exception e) {
+            // Fall back to the wizard rather than refusing to start.
+            return null;
+        }
+    }
+
+    private static String readAsset(Context context, String name) throws java.io.IOException {
+        try (InputStream in = context.getAssets().open(name);
+             BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+            StringBuilder out = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) out.append(line);
+            return out.toString();
+        }
+    }
+
+    private static String activeServerUrl(Context context) {
+        SharedPreferences prefs = prefs(context);
+        String id = prefs.getString(KEY_ACTIVE, null);
+        if (id == null) return null;
+        try {
+            JSONArray all = new JSONArray(prefs.getString(KEY_SERVERS, "[]"));
+            for (int i = 0; i < all.length(); i++) {
+                JSONObject entry = all.getJSONObject(i);
+                if (id.equals(entry.getString("id"))) return entry.getString("url");
             }
         } catch (JSONException e) {
-            // A corrupt store just means the user picks again.
+            // Corrupt store: the user picks again.
         }
+        return null;
     }
 
     /**
@@ -196,7 +262,7 @@ public class ServerConfigPlugin extends Plugin {
             all.put(entry);
             saveServers(all);
             setActiveId(entry.getString("id"));
-            loadInstance(url);
+            restart();
 
             JSObject result = new JSObject();
             result.put("server", JSObject.fromJSONObject(entry));
@@ -216,7 +282,7 @@ public class ServerConfigPlugin extends Plugin {
                 return;
             }
             setActiveId(id);
-            loadInstance(entry.getString("url"));
+            restart();
             call.resolve();
         } catch (JSONException e) {
             call.reject("unknown server");
@@ -267,6 +333,35 @@ public class ServerConfigPlugin extends Plugin {
     }
 
     /**
+     * Paints the chrome the webview does not cover to match the page.
+     *
+     * The DayNight resources only get this right while the user is on "match
+     * device"; pinning a theme is a page-level choice the system knows nothing
+     * about. The page passes its own resolved color so the shade is defined in
+     * exactly one place.
+     */
+    @PluginMethod
+    public void setTheme(PluginCall call) {
+        final boolean dark = "dark".equals(call.getString("theme"));
+        final int color;
+        try {
+            color = Color.parseColor(call.getString("color", dark ? "#131417" : "#ffffff"));
+        } catch (IllegalArgumentException e) {
+            call.reject("not a color");
+            return;
+        }
+        getActivity().runOnUiThread(() -> {
+            Window window = getActivity().getWindow();
+            window.setBackgroundDrawable(new ColorDrawable(color));
+            getBridge().getWebView().setBackgroundColor(color);
+            WindowInsetsControllerCompat bars = WindowCompat.getInsetsController(window, window.getDecorView());
+            bars.setAppearanceLightStatusBars(!dark);
+            bars.setAppearanceLightNavigationBars(!dark);
+        });
+        call.resolve();
+    }
+
+    /**
      * Back to the wizard without forgetting anything — sign-out, or an instance
      * that no longer answers and would otherwise leave the app pinned to a dead
      * origin.
@@ -291,11 +386,11 @@ public class ServerConfigPlugin extends Plugin {
 
     private void returnToWizard() {
         setActiveId(null);
-        final String local = getBridge().getLocalUrl();
-        getActivity().runOnUiThread(() -> getBridge().getWebView().loadUrl(local));
+        restart();
     }
 
-    private void loadInstance(final String url) {
-        getActivity().runOnUiThread(() -> getBridge().getWebView().loadUrl(url));
+    /** Rebuilds the bridge against the config the new active server implies. */
+    private void restart() {
+        getActivity().runOnUiThread(() -> getActivity().recreate());
     }
 }

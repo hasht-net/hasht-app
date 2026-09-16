@@ -31,7 +31,8 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "connect", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "remove", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "rename", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "reset", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "reset", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setTheme", returnType: CAPPluginReturnPromise)
     ]
 
     private static let serversKey = "net.hasht.app.servers"
@@ -199,6 +200,24 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve()
     }
 
+    /// Paints the chrome the webview does not cover to match the page.
+    ///
+    /// The page passes its own resolved color, so the shade is defined in
+    /// exactly one place — and a pinned theme, which the system knows nothing
+    /// about, still reaches the status bar.
+    @objc func setTheme(_ call: CAPPluginCall) {
+        let dark = call.getString("theme") == "dark"
+        let color = UIColor(hex: call.getString("color") ?? (dark ? "#131417" : "#ffffff"))
+        DispatchQueue.main.async { [weak self] in
+            guard let controller = self?.bridge?.viewController else { return }
+            controller.view.backgroundColor = color
+            self?.webView?.backgroundColor = color
+            self?.webView?.scrollView.backgroundColor = color
+            (controller as? MainViewController)?.setStatusBarDark(dark)
+        }
+        call.resolve()
+    }
+
     /// Back to the wizard without forgetting anything — sign-out, or an
     /// instance that no longer answers and would otherwise leave the app
     /// pinned to a dead origin.
@@ -222,5 +241,19 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let url = URL(string: raw), let webView = self?.bridge?.webView else { return }
             webView.load(URLRequest(url: url))
         }
+    }
+}
+
+private extension UIColor {
+    /// `#rrggbb` only — the one form the frontend's token table emits.
+    convenience init(hex: String) {
+        var value: UInt64 = 0
+        Scanner(string: hex.hasPrefix("#") ? String(hex.dropFirst()) : hex).scanHexInt64(&value)
+        self.init(
+            red: CGFloat((value >> 16) & 0xFF) / 255,
+            green: CGFloat((value >> 8) & 0xFF) / 255,
+            blue: CGFloat(value & 0xFF) / 255,
+            alpha: 1
+        )
     }
 }
