@@ -1,0 +1,43 @@
+name: "Draft Release"
+
+# Keeps a draft release open on top of main. Every push deletes the previous
+# draft and recreates it with the next version and freshly generated notes, so
+# it always reflects exactly what is unreleased.
+#
+# Publishing is manual: edit the draft in the Releases UI and hit publish.
+# Publishing is what triggers release.yaml — see that file for what ships where.
+#
+# The last release's tag is the source of truth: v0.1.0-beta.1 -> v0.1.0-beta.2.
+# To cut a stable version, edit the draft's tag by hand before publishing.
+# Requires an existing release to bump from — no-ops on a repo with none.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+
+# A burst of merges should only leave one draft standing.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  draft:
+    name: "Draft Release"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+
+    steps:
+      - name: "Draft Release Action"
+        id: draft
+        uses: cssnr/draft-release-action@v0
+        with:
+          semver: prerelease
+          identifier: beta
+          prefix: v
+
+      - name: "Echo Draft URL"
+        run: |
+          echo "url: ${{ steps.draft.outputs.url }}"

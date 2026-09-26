@@ -16,6 +16,10 @@ frontend from a user-configured instance.
 - `capacitor.config.ts` — no static `server.url`; the instance is runtime-chosen.
 - `ios/App/App/ServerConfigPlugin.swift`, `android/.../ServerConfigPlugin.java`
   — the native halves of `ServerConfig`.
+- `.github/workflows/draft.yaml` — rolling draft release on `main`, same as
+  `hasht-chat`. `.github/workflows/release.yaml` — on publish, one job per
+  platform sharing a single build number. `fastlane/` is the iOS half of that;
+  Android is Gradle plus the Play publisher API. See README, "Releasing".
 
 ## Conventions
 
@@ -27,6 +31,15 @@ frontend from a user-configured instance.
 - Native platform folders (`ios/`, `android/`) are committed, so hand-edits to
   `Info.plist` / `AndroidManifest.xml` survive. `npx cap sync` does not clobber
   them, but re-running `cap add` would.
+- Both release jobs start with the same `npm ci && npm run build && npx cap
+  sync <platform>`. Anything that has to happen before a native build belongs in
+  that step on *both* platforms, or the two binaries stop matching.
+- Release versions are never written into tracked files: iOS gets `xcargs`
+  overrides, Android gets `-PhashtVersion*`. A workflow that starts committing
+  a version bump has broken that rule.
+- `ios/.../xcshareddata/xcschemes/App.xcscheme` is committed on purpose — Xcode
+  only autocreates it under the gitignored `xcuserdata/`, leaving CI with no
+  scheme.
 - Comments explain *why*, sparingly.
 
 ## Verify

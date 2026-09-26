@@ -5,6 +5,20 @@ import WebKit
 /// Capacitor only auto-discovers plugins from packages, so anything defined in
 /// the app target has to be handed to the bridge explicitly.
 class MainViewController: CAPBridgeViewController {
+
+    /// Set by ServerConfig.setTheme: the page's own theme, which may be pinned
+    /// and so disagree with the system's.
+    private var statusBarDark = false
+
+    override var preferredStatusBarStyle: UIStatusBarStyle {
+        statusBarDark ? .lightContent : .darkContent
+    }
+
+    func setStatusBarDark(_ dark: Bool) {
+        guard dark != statusBarDark else { return }
+        statusBarDark = dark
+        setNeedsStatusBarAppearanceUpdate()
+    }
     private let serverConfig = ServerConfigPlugin()
     private var insetScript: WKUserScript?
     private var published: UIEdgeInsets = .init(top: -1, left: -1, bottom: -1, right: -1)

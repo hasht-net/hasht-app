@@ -1,0 +1,99 @@
+# fastlane drives the iOS half of the release. Android never touches it —
+# Gradle plus the Play publisher API cover that, see .github/workflows/release.yaml.
+#
+# Two lanes, one per release kind:
+#
+#   beta      prerelease -> TestFlight, no submission
+#   release   stable     -> App Store Connect, creates the version, does not
+#                           submit for review (that stays a human decision)
+#
+# Neither lane mutates a tracked file. The version and build number arrive as
+# xcargs build-setting overrides, which Info.plist already resolves through
+# $(MARKETING_VERSION) / $(CURRENT_PROJECT_VERSION).
+
+default_platform(:ios)
+
+APP_ID = "net.hasht.app"
+XCODEPROJ = "ios/App/App.xcodeproj"
+OUTPUT_DIR = "build"
+
+platform :ios do
+  # Everything both lanes need: a temporary CI keychain, an ASC API key, and
+  # the distribution cert + profile from the match repo. Returns the api_key
+  # so the caller can hand it to the upload action.
+  private_lane :prepare_signing do
+    setup_ci if ENV["CI"]
+
+    api_key = app_store_connect_api_key(
+      key_id: ENV.fetch("ASC_API_ID"),
+      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+      key_content: ENV.fetch("ASC_API_KEY"),
+      # The secret may hold either the raw .p8 or a base64 blob of it.
+      is_key_content_base64: !ENV.fetch("ASC_API_KEY").strip.start_with?("-----"),
+      duration: 1200,
+      in_house: false,
+    )
+
+    # readonly: CI consumes the match repo, it never writes to it. Bootstrap is
+    # a one-time local `bundle exec fastlane match appstore` — see README.
+    match(type: "appstore", app_identifier: APP_ID, readonly: true, api_key: api_key)
+
+    # The Capacitor-generated project ships CODE_SIGN_STYLE = Automatic, which
+    # ignores the profile match just installed. Pin it to the match profile for
+    # the duration of this run.
+    update_code_signing_settings(
+      use_automatic_signing: false,
+      path: XCODEPROJ,
+      targets: ["App"],
+      team_id: ENV.fetch("APPLE_TEAM_ID"),
+      bundle_identifier: APP_ID,
+      code_sign_identity: "Apple Distribution",
+      profile_name: ENV.fetch("sigh_#{APP_ID}_appstore_profile-name"),
+    )
+
+    api_key
+  end
+
+  # The webview assets must already be in ios/App/App/public — `npm run sync`
+  # locally, or the "Sync Capacitor" step in the workflow.
+  private_lane :archive do
+    build_app(
+      project: XCODEPROJ,
+      scheme: "App",
+      configuration: "Release",
+      export_method: "app-store",
+      output_directory: OUTPUT_DIR,
+      output_name: "Hasht.ipa",
+      clean: true,
+      xcargs: [
+        "MARKETING_VERSION=#{ENV.fetch('VERSION_NUMBER')}",
+        "CURRENT_PROJECT_VERSION=#{ENV.fetch('BUILD_NUMBER')}",
+      ].join(" "),
+    )
+  end
+
+  desc "Build and upload to TestFlight (prerelease)"
+  lane :beta do
+    prepare_signing
+    archive
+    upload_to_testflight(
+      skip_submission: true,
+      skip_waiting_for_build_processing: true,
+    )
+  end
+
+  desc "Build and upload to App Store Connect (stable)"
+  lane :release do
+    api_key = prepare_signing
+    archive
+    upload_to_app_store(
+      api_key: api_key,
+      # The store listing is maintained in App Store Connect, not this repo.
+      skip_metadata: true,
+      skip_screenshots: true,
+      # Uploads the binary and creates the version; a human submits it.
+      submit_for_review: false,
+      precheck_include_in_app_purchases: false,
+    )
+  end
+end

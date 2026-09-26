@@ -6,6 +6,10 @@ import com.getcapacitor.PluginHandle;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(android.os.Bundle savedInstanceState) {
+        // Before super: BridgeActivity builds the bridge from `config` during
+        // onCreate, and the active server has to be in it by then for Capacitor
+        // to treat that origin as the app and inject the bridge into it.
+        config = ServerConfigPlugin.runtimeConfig(this);
         registerPlugin(ServerConfigPlugin.class);
         super.onCreate(savedInstanceState);
     }

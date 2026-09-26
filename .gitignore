@@ -18,8 +18,18 @@ android/local.properties
 android/app/google-services.json
 android/capacitor-cordova-android-plugins/
 
+# Fastlane / release artifacts
+/build/
+*.ipa
+*.dSYM.zip
+fastlane/report.xml
+fastlane/README.md
+fastlane/test_output/
+
 # Signing / secrets — never commit
 *.p8
 *.p12
 *.mobileprovision
 .env
+*.keystore
+*.jks
