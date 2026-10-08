@@ -11,10 +11,10 @@
           "name": "hasht",
           "opacity": 0.8,
           "position": {
-            "scale": 1.4,
+            "scale": 1.6,
             "translation-in-points": [
-              -0.19156997641641738,
-              53.7008302480358
+              0,
+              0
             ]
           }
         }
