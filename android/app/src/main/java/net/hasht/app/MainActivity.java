@@ -12,6 +12,7 @@ public class MainActivity extends BridgeActivity {
         config = ServerConfigPlugin.runtimeConfig(this);
         registerPlugin(ServerConfigPlugin.class);
         registerPlugin(CallSessionPlugin.class);
+        registerPlugin(NativeAuthPlugin.class);
         super.onCreate(savedInstanceState);
     }
 

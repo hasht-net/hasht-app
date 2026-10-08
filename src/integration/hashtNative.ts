@@ -68,20 +68,41 @@ export function onNotificationTap(handler: (url: string) => void): void {
   });
 }
 
+/** Whether this shell can hand passkey sign-in to the browser (`NativeAuth`). */
+export function canSignInWithBrowser(): boolean {
+  return !!capacitor()?.Plugins?.NativeAuth;
+}
+
 /**
- * `auth::native` hands the one-time code back over `hasht://`. On the web this
- * arrives as a redirect; in the shell it arrives as an appUrlOpen event.
+ * Passkey sign-in via the `auth::native` browser handoff — the webview itself
+ * can't run WebAuthn for a self-hosted origin. The shell shows the match code,
+ * opens the browser sheet and redeems the code; this resolves with the
+ * server's `AuthResponse`, or null if the user cancelled.
  */
-export function onDeepLink(handler: (url: URL) => void): void {
-  capacitor()?.addListener?.('App', 'appUrlOpen', (data) => {
-    const raw = (data as { url?: string }).url;
-    if (!raw) return;
-    try {
-      handler(new URL(raw));
-    } catch {
-      /* a malformed deep link is not worth surfacing to the user */
-    }
-  });
+export async function signInWithBrowser(): Promise<unknown | null> {
+  try {
+    const { auth } = (await capacitor()?.Plugins?.NativeAuth?.signIn()) as { auth: unknown };
+    return auth;
+  } catch (error) {
+    if ((error as { code?: string })?.code === 'cancelled') return null;
+    throw error;
+  }
+}
+
+/**
+ * Auth finished by a `hasht://signin?server=<origin>` link (the web app's
+ * "Sign in to the Hasht app" setting), waiting for the page to adopt it on
+ * load. Null when there is none.
+ */
+export async function takePendingAuth(): Promise<unknown | null> {
+  try {
+    const result = (await capacitor()?.Plugins?.NativeAuth?.takePendingAuth()) as
+      | { auth: unknown | null }
+      | undefined;
+    return result?.auth ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**

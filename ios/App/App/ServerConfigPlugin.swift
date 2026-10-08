@@ -102,7 +102,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// Best-effort: a reachable instance with an unreadable name is still fine
     /// to connect to, so this never fails the probe.
-    private func fetchName(base: URL, completion: @escaping (String?) -> Void) {
+    func fetchName(base: URL, completion: @escaping (String?) -> Void) {
         guard let settings = URL(string: "/api/instance-settings", relativeTo: base) else {
             completion(nil)
             return
@@ -155,15 +155,44 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         let name = call.getString("name")?.trimmingCharacters(in: .whitespaces)
-        let entry = ServerEntry(
-            id: UUID().uuidString,
-            url: raw,
-            name: (name?.isEmpty == false ? name! : host)
-        )
-        servers.append(entry)
-        activeId = entry.id
-        load(entry.url)
+        let entry = append(url: raw, name: name?.isEmpty == false ? name! : host)
+        activate(entry.id)
         call.resolve(["server": ["id": entry.id, "url": entry.url, "name": entry.name]])
+    }
+
+    // MARK: - For NativeAuth
+
+    var activeServer: (id: String, url: String)? {
+        guard let entry = servers.first(where: { $0.id == activeId }) else { return nil }
+        return (entry.id, entry.url)
+    }
+
+    /// The added server at this origin, if any. Compared by origin rather than
+    /// string so a stored trailing slash or default port still matches.
+    func serverId(forOrigin origin: URL) -> String? {
+        servers.first { URL(string: $0.url).map(Self.originKey) == Self.originKey(origin) }?.id
+    }
+
+    /// Adds without loading, so a sign-in can finish before the webview moves.
+    func addServer(url: String, name: String) -> String {
+        append(url: url, name: name).id
+    }
+
+    func activate(_ id: String) {
+        guard let entry = servers.first(where: { $0.id == id }) else { return }
+        activeId = id
+        load(entry.url)
+    }
+
+    static func originKey(_ url: URL) -> String {
+        let port = url.port.map { ":\($0)" } ?? ""
+        return "\(url.scheme ?? "")://\(url.host ?? "")\(port)".lowercased()
+    }
+
+    private func append(url: String, name: String) -> ServerEntry {
+        let entry = ServerEntry(id: UUID().uuidString, url: url, name: name)
+        servers.append(entry)
+        return entry
     }
 
     @objc func connect(_ call: CAPPluginCall) {

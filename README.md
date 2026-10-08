@@ -64,6 +64,38 @@ depends on version together.
 The native bridge (`window.Capacitor`) is injected into whatever origin the
 webview loads, so the remote frontend can call plugins directly.
 
+### Signing in
+
+Passwords work in the webview as on the web. **Passkeys don't**: WKWebView
+only runs WebAuthn for relying parties in the app's Associated Domains
+entitlement, and Android WebView only for ones linked through Digital Asset
+Links — both fixed per domain, which no self-hosted instance can be. So the
+`NativeAuth` plugin hands the ceremony to the OS's browser sign-in sheet and
+redeems the result through the backend's `auth::native` flow (PKCE + a match
+code; see `docs/NATIVE_SIGN_IN.md` in the chat repo).
+
+| | iOS | Android |
+|---|---|---|
+| Sheet | `ASWebAuthenticationSession` (Safari's engine, whatever the default browser) | Auth Tab in the default browser; Custom Tab where it has none |
+| Callback | `hasht://auth`, returned in-process | Auth Tab: activity result. Custom Tab: `hasht://` intent |
+
+The verifier never leaves native code, so a code intercepted on its way back
+is useless. The match code is shown in a native alert before the sheet opens,
+since the sheet covers the app.
+
+Two ways in:
+
+- **`NativeAuth.signIn()`** from the instance's login screen — the active
+  server.
+- **`hasht://signin?server=<origin>`** from the web app's "Sign in to the Hasht
+  app" setting on the same device. Any page can send that link naming any
+  host, so the alert is also the confirm, and nothing is added or switched
+  until sign-in succeeds. The auth is then parked for that server, the webview
+  loads it, and the page adopts it via `NativeAuth.takePendingAuth()`.
+
+Each sign-in carries its own server, so several configured instances never
+cross. Coming back to the app while the browser is open cancels the sign-in.
+
 ### Calls in the background (Android)
 
 Android silences a backgrounded app's mic about six seconds after it leaves
@@ -209,7 +241,7 @@ Both stores need the app to exist before any automation can reach it:
 | Return to wizard | ⚠️ plugin method ready; awaiting the frontend control |
 | Connect buttons (tap-through) | ⚠️ not yet exercised — no touch input via simctl |
 | Push | ❌ not started — blocked on the relay |
-| Deep links / auth handoff | ⚠️ manifest + Info.plist wired, no handler |
+| Passkey sign-in (`NativeAuth`) | ✅ builds on both; ❌ not yet run on a device |
 | Frontend integration | ⚠️ contract drafted, not yet vendored into chat |
 
 ### Things the first run taught us
@@ -256,9 +288,9 @@ Four traps, all invisible to a green build:
    the aes128gcm payload.
 4. Frontend: a "switch server" control calling `forgetInstance()`, reachable
    both signed-in and signed-out. Closes the gap above.
-5. Wire the `hasht://` deep link into `auth::native`, using
-   `ASWebAuthenticationSession` — note `@capacitor/browser` is
-   SFSafariViewController and is *not* the right primitive for this.
+5. Run passkey sign-in on real devices against chat.hasht.net and a
+   self-hosted instance (see "Signing in"), including Android with a browser
+   that has no Auth Tab.
 6. **Frontend: consume the safe-area variables.** `env(safe-area-inset-*)`
    resolves to 0 in this webview (measured under both `contentInset: 'never'`
    and `'automatic'`), so the frontend's 36 `env()` rules compute to nothing

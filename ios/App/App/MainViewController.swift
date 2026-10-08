@@ -20,11 +20,13 @@ class MainViewController: CAPBridgeViewController {
         setNeedsStatusBarAppearanceUpdate()
     }
     private let serverConfig = ServerConfigPlugin()
+    private let nativeAuth = NativeAuthPlugin()
     private var insetScript: WKUserScript?
     private var published: UIEdgeInsets = .init(top: -1, left: -1, bottom: -1, right: -1)
 
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(serverConfig)
+        bridge?.registerPluginInstance(nativeAuth)
     }
 
     override func viewDidLoad() {
