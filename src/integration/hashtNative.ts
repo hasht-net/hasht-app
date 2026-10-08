@@ -85,6 +85,26 @@ export function onDeepLink(handler: (url: URL) => void): void {
 }
 
 /**
+ * Android silences the WebView's mic soon after the app is backgrounded unless
+ * a microphone foreground service is running, so mirror every call's lifetime
+ * here: start once the call has the mic (the runtime permission must already
+ * be granted) and while the page is visible, stop on every way a call ends.
+ * The ongoing notification it shows is also what the Play declaration for
+ * FOREGROUND_SERVICE_MICROPHONE relies on — don't start it outside a call.
+ *
+ * No-op elsewhere: iOS keeps the mic via `UIBackgroundModes: audio`.
+ */
+export async function startCallSession(title?: string): Promise<void> {
+  if (nativePlatform() !== 'android') return;
+  await capacitor()?.Plugins?.CallSession?.start({ title });
+}
+
+export async function endCallSession(): Promise<void> {
+  if (nativePlatform() !== 'android') return;
+  await capacitor()?.Plugins?.CallSession?.stop();
+}
+
+/**
  * Returns the shell to the instance wizard. The shell shows no server-switching
  * control of its own, so the frontend owns this entirely — offer it both from
  * settings and from the signed-out screen, or a wrong instance is a dead end.

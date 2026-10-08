@@ -64,6 +64,17 @@ depends on version together.
 The native bridge (`window.Capacitor`) is injected into whatever origin the
 webview loads, so the remote frontend can call plugins directly.
 
+### Calls in the background (Android)
+
+Android silences a backgrounded app's mic about six seconds after it leaves
+the screen, and the WebView's track still reports `live`, so the page cannot
+notice. The frontend mirrors each call's lifetime into `CallSession`
+(`startCallSession()` / `endCallSession()` in `src/integration/`), which runs
+`OngoingCallService`: a `microphone`-typed foreground service with an ongoing
+notification. That service is the use Play's `FOREGROUND_SERVICE_MICROPHONE`
+declaration describes, so it must only ever run during a call — the Play
+Console declaration needs a video of exactly that.
+
 ## Setup
 
 ```sh

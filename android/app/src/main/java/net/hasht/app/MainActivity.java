@@ -11,6 +11,7 @@ public class MainActivity extends BridgeActivity {
         // to treat that origin as the app and inject the bridge into it.
         config = ServerConfigPlugin.runtimeConfig(this);
         registerPlugin(ServerConfigPlugin.class);
+        registerPlugin(CallSessionPlugin.class);
         super.onCreate(savedInstanceState);
     }
 

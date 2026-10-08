@@ -16,6 +16,9 @@ frontend from a user-configured instance.
 - `capacitor.config.ts` — no static `server.url`; the instance is runtime-chosen.
 - `ios/App/App/ServerConfigPlugin.swift`, `android/.../ServerConfigPlugin.java`
   — the native halves of `ServerConfig`.
+- `android/.../CallSessionPlugin.java`, `OngoingCallService.java` — Android-only;
+  keeps the mic alive during a backgrounded call. See README, "Calls in the
+  background".
 - `.github/workflows/draft.yaml` — rolling draft release on `main`, same as
   `hasht-chat`. `.github/workflows/release.yaml` — on publish, one job per
   platform sharing a single build number. `fastlane/` is the iOS half of that;
