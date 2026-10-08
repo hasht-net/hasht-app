@@ -48,6 +48,13 @@
         </provider>
     </application>
 
+    <!-- NativeAuth looks up the browser to open its Auth Tab / Custom Tab in. -->
+    <queries>
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
+    </queries>
+
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />

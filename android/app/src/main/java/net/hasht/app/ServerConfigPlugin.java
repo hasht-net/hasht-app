@@ -144,6 +144,14 @@ public class ServerConfigPlugin extends Plugin {
     }
 
     private static String activeServerUrl(Context context) {
+        JSONObject active = activeServer(context);
+        return active == null ? null : active.optString("url", null);
+    }
+
+    // --- For NativeAuth. Static because switching servers recreates the
+    // activity, and every plugin instance with it.
+
+    static JSONObject activeServer(Context context) {
         SharedPreferences prefs = prefs(context);
         String id = prefs.getString(KEY_ACTIVE, null);
         if (id == null) return null;
@@ -151,12 +159,63 @@ public class ServerConfigPlugin extends Plugin {
             JSONArray all = new JSONArray(prefs.getString(KEY_SERVERS, "[]"));
             for (int i = 0; i < all.length(); i++) {
                 JSONObject entry = all.getJSONObject(i);
-                if (id.equals(entry.getString("id"))) return entry.getString("url");
+                if (id.equals(entry.getString("id"))) return entry;
             }
         } catch (JSONException e) {
             // Corrupt store: the user picks again.
         }
         return null;
+    }
+
+    /** Compared by origin rather than string, so a trailing slash still matches. */
+    static String serverIdForOrigin(Context context, Uri origin) {
+        try {
+            JSONArray all = new JSONArray(prefs(context).getString(KEY_SERVERS, "[]"));
+            for (int i = 0; i < all.length(); i++) {
+                JSONObject entry = all.getJSONObject(i);
+                if (originKey(Uri.parse(entry.getString("url"))).equals(originKey(origin))) {
+                    return entry.getString("id");
+                }
+            }
+        } catch (JSONException e) {
+            // Corrupt store: treat as not added.
+        }
+        return null;
+    }
+
+    /** Adds and activates; the caller recreates the activity to load it. */
+    static String addAndActivate(Context context, String url, String name) throws JSONException {
+        SharedPreferences prefs = prefs(context);
+        JSONArray all = new JSONArray(prefs.getString(KEY_SERVERS, "[]"));
+        JSONObject entry = new JSONObject();
+        entry.put("id", UUID.randomUUID().toString());
+        entry.put("url", url);
+        entry.put("name", name);
+        all.put(entry);
+        prefs.edit()
+            .putString(KEY_SERVERS, all.toString())
+            .putString(KEY_ACTIVE, entry.getString("id"))
+            .apply();
+        return entry.getString("id");
+    }
+
+    static void activate(Context context, String id) {
+        prefs(context).edit().putString(KEY_ACTIVE, id).apply();
+    }
+
+    /** Best-effort, off the main thread: null when the name can't be read. */
+    static String fetchName(String base) {
+        try {
+            String appName = new JSONObject(get(base + "/api/instance-settings")).optString("app_name");
+            return appName.isEmpty() ? null : appName;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String originKey(Uri url) {
+        String port = url.getPort() == -1 ? "" : ":" + url.getPort();
+        return (url.getScheme() + "://" + url.getHost() + port).toLowerCase(java.util.Locale.ROOT);
     }
 
     /**
@@ -186,21 +245,15 @@ public class ServerConfigPlugin extends Plugin {
 
             // Best-effort: a reachable instance with an unreadable name is
             // still fine to connect to.
-            String name = Uri.parse(base).getHost();
-            try {
-                String settings = get(base + "/api/instance-settings");
-                String appName = new JSONObject(settings).optString("app_name");
-                if (!appName.isEmpty()) name = appName;
-            } catch (Exception ignored) {
-            }
+            String name = fetchName(base);
 
             JSObject result = new JSObject();
-            result.put("name", name);
+            result.put("name", name != null ? name : Uri.parse(base).getHost());
             call.resolve(result);
         }).start();
     }
 
-    private String get(String url) throws Exception {
+    private static String get(String url) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
         connection.setConnectTimeout(8000);
         connection.setReadTimeout(8000);

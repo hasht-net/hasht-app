@@ -8,14 +8,16 @@ frontend from a user-configured instance.
 - `index.html`, `src/bootstrap.ts`, `src/bootstrap.css` — the instance picker.
   The **only** UI this repo ships; everything after connecting is the remote
   Vue app.
-- `src/plugins/serverConfig.ts` — TS interface for the custom `ServerConfig`
-  plugin.
+- `src/plugins/serverConfig.ts`, `src/plugins/nativeAuth.ts` — TS interfaces
+  for the custom `ServerConfig` and `NativeAuth` plugins.
 - `src/integration/hashtNative.ts` — the native-bridge contract for the *chat
   frontend* to vendor. Nothing here imports it; it lives here so the app and
   the API it depends on version together.
 - `capacitor.config.ts` — no static `server.url`; the instance is runtime-chosen.
 - `ios/App/App/ServerConfigPlugin.swift`, `android/.../ServerConfigPlugin.java`
   — the native halves of `ServerConfig`.
+- `ios/App/App/NativeAuthPlugin.swift`, `android/.../NativeAuthPlugin.java` —
+  passkey sign-in via the browser handoff. See README, "Signing in".
 - `android/.../CallSessionPlugin.java`, `OngoingCallService.java` — Android-only;
   keeps the mic alive during a backgrounded call. See README, "Calls in the
   background".
