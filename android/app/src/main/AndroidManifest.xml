@@ -31,6 +31,12 @@
 
         </activity>
 
+        <!-- Started by CallSession while a call is live; see OngoingCallService. -->
+        <service
+            android:name=".OngoingCallService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
