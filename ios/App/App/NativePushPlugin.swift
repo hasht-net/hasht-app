@@ -269,7 +269,9 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
             if existing.relayUrl == relay {
                 let (status, _) = try await relayRequest(
                     "PUT", "\(relay)/v1/register/\(existing.id)", body: registerBody(token))
-                if (200..<300).contains(status) { return existing }
+                if status == 204 { return existing }
+                // Only a missing row justifies replacing its endpoint and keys.
+                guard status == 404 else { throw URLError(.badServerResponse) }
             } else {
                 _ = try? await relayRequest("DELETE", "\(existing.relayUrl)/v1/register/\(existing.id)", body: nil)
             }

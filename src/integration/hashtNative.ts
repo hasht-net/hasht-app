@@ -115,6 +115,19 @@ export async function clearNativeChannel(tag: string): Promise<void> {
   await capacitor()?.Plugins?.NativePush?.clearChannel({ tag });
 }
 
+/** Android overflow recovery. Old shells and iOS have no recovery callback. */
+export async function nativePushRecovery(): Promise<{ origin: string; generation: number } | null> {
+  const recovery = await capacitor()?.Plugins?.NativePush?.recoveryNeeded?.() as
+    | { needed?: boolean; origin?: string; generation?: number } | undefined;
+  if (!recovery?.needed || !recovery.origin || !recovery.generation) return null;
+  return { origin: recovery.origin, generation: recovery.generation };
+}
+
+/** Call only after this instance's authenticated unread/channel state loads successfully. */
+export async function completeNativePushRecovery(recovery: { origin: string; generation: number }): Promise<void> {
+  await capacitor()?.Plugins?.NativePush?.completeRecovery?.(recovery);
+}
+
 /**
  * Tapping a notification has to land on the message it is about. `url` is
  * the payload's path on this instance. Register early: a tap that launched

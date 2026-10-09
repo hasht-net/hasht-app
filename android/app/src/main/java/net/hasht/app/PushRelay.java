@@ -19,6 +19,9 @@ import org.json.JSONObject;
 final class PushRelay {
     private PushRelay() {}
 
+    private static final Object storageLock = new Object();
+    private static final java.util.Map<String, Long> generations = new java.util.HashMap<>();
+
     private static final class Response {
         final int status;
         final JSONObject body;
@@ -38,20 +41,31 @@ final class PushRelay {
     static synchronized PushStore.Registration register(Context context, String origin, String relay, String token)
         throws Exception {
         String base = relay.endsWith("/") ? relay.substring(0, relay.length() - 1) : relay;
-        List<PushStore.Registration> regs = PushStore.load(context);
-
-        for (PushStore.Registration existing : regs) {
-            if (!existing.origin.equals(origin)) continue;
+        PushStore.Registration existing = null;
+        long generation;
+        synchronized (storageLock) {
+            generation = generations.getOrDefault(origin, 0L) + 1;
+            generations.put(origin, generation);
+            for (PushStore.Registration reg : PushStore.load(context)) {
+                if (reg.origin.equals(origin)) { existing = reg; break; }
+            }
+        }
+        if (existing != null) {
             if (existing.relayUrl.equals(base)) {
                 Response r = request("PUT", base + "/v1/register/" + existing.id, body(context, token));
-                if (r.status >= 200 && r.status < 300) return existing;
+                if (r.status == 204) {
+                    synchronized (storageLock) {
+                        requireCurrent(origin, generation);
+                        return existing;
+                    }
+                }
+                // Only a missing row justifies replacing its endpoint and keys.
+                if (r.status != 404) throw new IllegalStateException("relay answered " + r.status);
             } else {
                 quietly("DELETE", existing.relayUrl + "/v1/register/" + existing.id);
             }
-            regs.remove(existing);
-            break;
         }
-
+        synchronized (storageLock) { requireCurrent(origin, generation); }
         Response r = request("POST", base + "/v1/register", body(context, token));
         if (r.status != 201 || r.body == null) throw new IllegalStateException("relay answered " + r.status);
 
@@ -61,21 +75,48 @@ final class PushRelay {
         PushStore.Registration reg = new PushStore.Registration(
             origin, base, r.body.getString("id"), r.body.getString("endpoint"),
             keys.getPrivate().getEncoded(), WebPushCrypto.encodePublic((ECPublicKey) keys.getPublic()), auth);
-        regs.add(reg);
-        PushStore.save(context, regs);
+        boolean cancelled;
+        synchronized (storageLock) {
+            cancelled = generations.getOrDefault(origin, 0L) != generation;
+            if (!cancelled) {
+                // Other instances may have registered while the network was busy.
+                List<PushStore.Registration> regs = PushStore.load(context);
+                regs.removeIf(saved -> saved.origin.equals(origin));
+                regs.add(reg);
+                PushStore.save(context, regs);
+            }
+        }
+        if (cancelled) {
+            quietly("DELETE", base + "/v1/register/" + reg.id);
+            throw new IllegalStateException("push registration was cancelled");
+        }
         return reg;
     }
 
-    /** Drops `origin`'s registration here and at the relay. */
-    static synchronized void unregister(Context context, String origin) {
-        List<PushStore.Registration> regs = PushStore.load(context);
-        for (int i = regs.size() - 1; i >= 0; i--) {
-            PushStore.Registration reg = regs.get(i);
-            if (!reg.origin.equals(origin)) continue;
-            quietly("DELETE", reg.relayUrl + "/v1/register/" + reg.id);
-            regs.remove(i);
+    private static void requireCurrent(String origin, long generation) {
+        if (generations.getOrDefault(origin, 0L) != generation) {
+            throw new IllegalStateException("push registration was cancelled");
         }
-        PushStore.save(context, regs);
+    }
+
+    /** Revoke decryption keys synchronously; relay deletion can wait for the network. */
+    static List<PushStore.Registration> dropLocal(Context context, String origin) {
+        synchronized (storageLock) {
+            generations.put(origin, generations.getOrDefault(origin, 0L) + 1);
+            List<PushStore.Registration> regs = PushStore.load(context);
+            List<PushStore.Registration> gone = new java.util.ArrayList<>();
+            for (int i = regs.size() - 1; i >= 0; i--) {
+                if (regs.get(i).origin.equals(origin)) gone.add(regs.remove(i));
+            }
+            PushStore.save(context, regs);
+            return gone;
+        }
+    }
+
+    static void deleteRegistrations(List<PushStore.Registration> registrations) {
+        for (PushStore.Registration reg : registrations) {
+            quietly("DELETE", reg.relayUrl + "/v1/register/" + reg.id);
+        }
     }
 
     /** Points every registration at a rotated FCM token. */

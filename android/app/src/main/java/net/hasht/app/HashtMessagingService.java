@@ -17,15 +17,16 @@ public class HashtMessagingService extends FirebaseMessagingService {
     }
 
     @Override
+    public void onDeletedMessages() {
+        PushNotifications.overflow(this);
+    }
+
+    @Override
     public void onMessageReceived(@NonNull RemoteMessage remote) {
         String enc = remote.getData().get("enc");
         if (enc == null) return;
         PushNotifications.Message message = PushNotifications.open(this, enc);
         if (message == null) return;
-        if ("remove".equals(message.kind)) {
-            PushNotifications.remove(this, message.origin, message.tag.isEmpty() ? null : message.tag, message.ids);
-        } else {
-            PushNotifications.show(this, message);
-        }
+        PushNotifications.receive(this, message);
     }
 }

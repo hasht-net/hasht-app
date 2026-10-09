@@ -121,13 +121,33 @@ replaces the relay's placeholder ("Hasht — New message") with the real text.
 - **Keys** live in the Keychain under the App Group `group.net.hasht.app`
   (shared with the extension) on iOS, and in app storage wrapped by an Android
   Keystore key on Android. Both are readable while the phone is locked.
-- **Per-channel replacement.** The backend sets a `Topic` per channel; a newer
-  message replaces the older notification instead of stacking.
+- **Per-channel replacement.** Android uses noncollapsible FCM data pushes
+  and replaces notifications locally by instance/channel. Encrypted database
+  timestamps order messages and edits; persisted high-water marks and removal
+  tombstones suppress duplicates and late alerts across process restarts.
+  Ordering state keeps 128 channels per instance, 2,048 total, for 26 hours
+  (message TTL is 24 hours). Exhausting capacity triggers recovery instead of
+  evicting protection and allowing withdrawn messages to reappear.
+  APNs uses the backend's per-channel `Topic` as its collapse ID.
 - **Edits and removes** (`kind: update | remove`) go to the app only — never
   to browsers, whose service worker must show every push it gets. Android
-  withdraws a notification reliably. iOS gets removes as background pushes,
+  suppresses withdrawn identities once their remove is delivered. FCM can
+  delay normal-priority removes; their one-hour TTL can expire before delivery.
+  iOS gets removes as background pushes,
   which iOS throttles and never delivers to a force-quit app, so on iOS they
   are best effort.
+- **Offline overflow.** FCM retains up to 100 noncollapsible events across all
+  instances on one device. When FCM reports dropped events, the app clears
+  stale notifications and persists recovery flags even if permission is denied.
+  A generic “Open Hasht to catch up” prompt opens the correct instance. Fresh
+  ordered pushes can still display; older queued pushes cannot recreate the
+  cleared notifications. The frontend acknowledges recovery only after loading
+  authenticated channel/read/unread state successfully. It cannot recreate
+  missed native previews while closed; authenticated background sync is a
+  planned follow-up. APNs retains only one offline notification per app/device.
+  Older backends without ordering metadata retain best-effort behavior;
+  following overflow their unversioned pushes are conservatively suppressed
+  for the protection window. Device/server clocks need to be roughly aligned.
 - **Foreground**: no banner for the instance on screen, as on the web.
 - `@capacitor/push-notifications` is gone: it can't share keys with an
   extension and competed for the notification-center delegate.

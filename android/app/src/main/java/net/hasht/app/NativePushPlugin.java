@@ -113,8 +113,12 @@ public class NativePushPlugin extends Plugin {
     @PluginMethod
     public void unregister(PluginCall call) {
         String origin = activeOrigin(getContext());
-        if (origin != null) unregister(getContext(), origin);
-        call.resolve();
+        try {
+            if (origin != null) unregister(getContext(), origin);
+            call.resolve();
+        } catch (IllegalStateException failure) {
+            call.reject(failure.getMessage(), "storage", failure);
+        }
     }
 
     /** The page read the channel; withdraw what's still in the shade. */
@@ -126,7 +130,33 @@ public class NativePushPlugin extends Plugin {
             return;
         }
         String origin = activeOrigin(getContext());
-        if (origin != null) PushNotifications.remove(getContext(), origin, tag, Collections.emptyList());
+        try {
+            if (origin != null) PushNotifications.clearChannel(getContext(), origin, tag);
+            call.resolve();
+        } catch (IllegalStateException failure) {
+            call.reject(failure.getMessage(), "storage", failure);
+        }
+    }
+
+    @PluginMethod
+    public void recoveryNeeded(PluginCall call) {
+        String origin = activeOrigin(getContext());
+        long generation = origin == null ? 0 : PushNotifications.recoveryGeneration(getContext(), origin);
+        JSObject result = new JSObject();
+        result.put("needed", generation != 0);
+        result.put("generation", generation);
+        result.put("origin", origin);
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void completeRecovery(PluginCall call) {
+        String expected = call.getString("origin");
+        String origin = activeOrigin(getContext());
+        Long generation = call.getLong("generation");
+        if (origin != null && origin.equals(expected) && generation != null) {
+            PushNotifications.completeRecovery(getContext(), origin, generation);
+        }
         call.resolve();
     }
 
@@ -134,8 +164,12 @@ public class NativePushPlugin extends Plugin {
 
     /** Relay row, keys and delivered notifications for `origin`. Also sign-out. */
     static void unregister(Context context, String origin) {
-        PushNotifications.remove(context, origin, null, Collections.emptyList());
-        executor.execute(() -> PushRelay.unregister(context, origin));
+        java.util.List<PushStore.Registration> gone;
+        synchronized (PushNotifications.class) {
+            gone = PushRelay.dropLocal(context, origin);
+            PushNotifications.forget(context, origin);
+        }
+        executor.execute(() -> PushRelay.deleteRegistrations(gone));
     }
 
     static String activeOrigin(Context context) {

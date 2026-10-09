@@ -122,7 +122,9 @@ final class PushStore {
             byte[] sealed = cipher.doFinal(all.toString().getBytes(StandardCharsets.UTF_8));
             // commit, not apply: the caller hands the keys to the page next,
             // and a lost write would leave the instance unable to reach us.
-            prefs(context).edit().putString(KEY_BLOB, b64(WebPushCrypto.concat(cipher.getIV(), sealed))).commit();
+            if (!prefs(context).edit().putString(KEY_BLOB, b64(WebPushCrypto.concat(cipher.getIV(), sealed))).commit()) {
+                throw new IllegalStateException("could not store push registrations");
+            }
         } catch (GeneralSecurityException | JSONException e) {
             throw new IllegalStateException("could not store push registrations", e);
         }

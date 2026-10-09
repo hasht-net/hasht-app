@@ -284,9 +284,12 @@ public class ServerConfigPlugin extends Plugin {
     @PluginMethod
     public void signOut(PluginCall call) {
         String origin = NativePushPlugin.activeOrigin(getContext());
-        if (origin != null) NativePushPlugin.unregister(getContext(), origin);
-        NotificationManagerCompat.from(getContext()).cancelAll();
-        call.resolve();
+        try {
+            if (origin != null) NativePushPlugin.unregister(getContext(), origin);
+            call.resolve();
+        } catch (IllegalStateException failure) {
+            call.reject(failure.getMessage(), "storage", failure);
+        }
     }
 
     @PluginMethod

@@ -32,6 +32,9 @@ export interface NativePushPlugin {
   unregister(): Promise<void>;
   /** Withdraws this instance's delivered notifications for one channel `tag`. */
   clearChannel(options: { tag: string }): Promise<void>;
+  /** Android lost queued events; acknowledge after authenticated unread state loads. */
+  recoveryNeeded(): Promise<{ needed: boolean; generation: number; origin: string }>;
+  completeRecovery(options: { generation: number; origin: string }): Promise<void>;
   /**
    * A notification for this instance was tapped. `url` is the path from the
    * push payload. Taps on another instance's notification switch servers
