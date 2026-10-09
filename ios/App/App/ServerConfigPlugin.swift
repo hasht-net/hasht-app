@@ -125,8 +125,17 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     /// deliberately does *not* navigate — signing out leaves you on the same
     /// instance's login screen, as it does on the web.
     ///
-    /// Where push unregistration belongs once push exists.
+    /// Ends this instance's push registration too, so a page that forgets to
+    /// call `NativePush.unregister` doesn't leave the next user's phone
+    /// receiving the last one's messages.
     @objc func signOut(_ call: CAPPluginCall) {
+        if let push = bridge?.plugin(withName: "NativePush") as? NativePushPlugin {
+            Task { @MainActor in
+                if let url = self.bridge?.webView?.url, ["https", "http"].contains(url.scheme) {
+                    await push.unregister(origin: Self.originKey(url))
+                }
+            }
+        }
         DispatchQueue.main.async {
             UNUserNotificationCenter.current().removeAllDeliveredNotifications()
             if #available(iOS 16.0, *) {
@@ -178,10 +187,12 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         append(url: url, name: name).id
     }
 
-    func activate(_ id: String) {
+    /// Makes `id` active and loads it — at `url` if given, e.g. the message a
+    /// tapped notification is about.
+    func activate(_ id: String, loading url: String? = nil) {
         guard let entry = servers.first(where: { $0.id == id }) else { return }
         activeId = id
-        load(entry.url)
+        load(url ?? entry.url)
     }
 
     static func originKey(_ url: URL) -> String {

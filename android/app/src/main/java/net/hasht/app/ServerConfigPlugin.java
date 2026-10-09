@@ -213,7 +213,7 @@ public class ServerConfigPlugin extends Plugin {
         }
     }
 
-    private static String originKey(Uri url) {
+    static String originKey(Uri url) {
         String port = url.getPort() == -1 ? "" : ":" + url.getPort();
         return (url.getScheme() + "://" + url.getHost() + port).toLowerCase(java.util.Locale.ROOT);
     }
@@ -277,10 +277,14 @@ public class ServerConfigPlugin extends Plugin {
      * deliberately does not navigate — signing out leaves you on the same
      * instance's login screen, as it does on the web.
      *
-     * Where push unregistration belongs once push exists.
+     * Ends this instance's push registration too, so a page that forgets to
+     * call NativePush.unregister doesn't leave the next user's phone receiving
+     * the last one's messages.
      */
     @PluginMethod
     public void signOut(PluginCall call) {
+        String origin = NativePushPlugin.activeOrigin(getContext());
+        if (origin != null) NativePushPlugin.unregister(getContext(), origin);
         NotificationManagerCompat.from(getContext()).cancelAll();
         call.resolve();
     }

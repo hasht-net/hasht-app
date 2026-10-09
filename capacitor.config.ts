@@ -25,9 +25,6 @@ const config: CapacitorConfig = {
     allowMixedContent: false,
   },
   plugins: {
-    PushNotifications: {
-      presentationOptions: ['badge', 'sound', 'alert'],
-    },
     Keyboard: {
       // The frontend declares interactive-widget=resizes-content and owns
       // inset handling in useViewportKeyboard; letting the plugin resize the

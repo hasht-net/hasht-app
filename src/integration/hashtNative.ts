@@ -18,7 +18,6 @@ interface CapacitorGlobal {
   isNativePlatform?: () => boolean;
   getPlatform?: () => string;
   Plugins?: PluginRegistry;
-  addListener?: (plugin: string, event: string, cb: (data: unknown) => void) => void;
 }
 
 function capacitor(): CapacitorGlobal | undefined {
@@ -35,35 +34,97 @@ export function nativePlatform(): 'ios' | 'android' | 'web' {
 }
 
 /**
- * Web Push is unavailable in the shell — WKWebView has no PushManager, and
- * Android's WebView has no Push API — so the native transport replaces it
- * rather than supplementing it. Guard the existing
- * `PushManager.subscribe()` path on `!isNativeShell()`.
- *
- * TODO(relay): needs a backend endpoint that accepts an APNs/FCM device token
- * alongside a client-generated p256dh/auth keypair, and stores the relay URL
- * as the subscription `endpoint` so `push::send_to_users` keeps working
- * unchanged. Blocked on the relay existing.
+ * The relay the app's builds are registered with. Its host has to be in the
+ * instance's push endpoint allowlist (`push::endpoint` in the backend); an
+ * instance too old to know it answers 400 on subscribe.
  */
-export async function registerNativePush(): Promise<string | null> {
-  const push = capacitor()?.Plugins?.PushNotifications;
-  if (!push) return null;
+export const HASHT_PUSH_RELAY = 'https://push.hasht.net';
 
-  const permission = (await push.requestPermissions()) as { receive?: string };
-  if (permission.receive !== 'granted') return null;
-
-  return new Promise((resolve) => {
-    capacitor()?.addListener?.('PushNotifications', 'registration', (data) => {
-      resolve((data as { value?: string }).value ?? null);
-    });
-    void push.register();
-  });
+export interface NativePushSubscription {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
 }
 
-/** Tapping a notification has to land on the message it is about. */
+/**
+ * Web Push is unavailable in the shell — WKWebView has no PushManager, and
+ * Android's WebView has no Push API — so the native transport replaces it
+ * rather than supplementing it. Guard the existing `PushManager.subscribe()`
+ * path on `!isNativeShell()` and call `subscribeNativePush()` instead.
+ *
+ * Null when the user refused permission or this build can't receive push.
+ */
+export async function registerNativePush(
+  { prompt = true, relayUrl = HASHT_PUSH_RELAY }: { prompt?: boolean; relayUrl?: string } = {},
+): Promise<NativePushSubscription | null> {
+  const push = capacitor()?.Plugins?.NativePush;
+  if (!push) return null;
+  try {
+    return (await push.register({ relayUrl, prompt })) as NativePushSubscription;
+  } catch (error) {
+    const code = (error as { code?: string })?.code;
+    if (code === 'denied' || code === 'unavailable') return null;
+    throw error;
+  }
+}
+
+export type NativePushResult = 'subscribed' | 'declined' | 'server-too-old';
+
+/**
+ * Registers with the relay and stores the result on this instance, exactly
+ * where a browser subscription goes. `post` is the frontend's own authenticated
+ * call to `POST /api/push/subscribe`; it must reject with the response status
+ * on failure. Safe to call on every load: the native side reuses the existing
+ * registration and the backend upserts by endpoint.
+ */
+export async function subscribeNativePush(
+  post: (body: { endpoint: string; p256dh_key: string; auth_key: string }) => Promise<unknown>,
+  options: { prompt?: boolean; relayUrl?: string } = {},
+): Promise<NativePushResult> {
+  const sub = await registerNativePush(options);
+  if (!sub) return 'declined';
+  try {
+    await post({ endpoint: sub.endpoint, p256dh_key: sub.p256dh, auth_key: sub.auth });
+    return 'subscribed';
+  } catch (error) {
+    // The endpoint allowlist predates the relay: tell the user the server
+    // needs an upgrade rather than failing silently.
+    if ((error as { status?: number })?.status === 400) {
+      await unregisterNativePush();
+      return 'server-too-old';
+    }
+    throw error;
+  }
+}
+
+/**
+ * On sign-out, alongside the instance's own unsubscribe. (`ServerConfig.signOut`
+ * also does this natively, as a backstop.)
+ */
+export async function unregisterNativePush(): Promise<void> {
+  await capacitor()?.Plugins?.NativePush?.unregister();
+}
+
+/**
+ * The page read a channel: withdraw its notifications from the lock screen /
+ * shade too. The native twin of `closeChannelNotifications()` — call both.
+ * `tag` is the payload tag, `channel:<id>`.
+ */
+export async function clearNativeChannel(tag: string): Promise<void> {
+  if (!isNativeShell()) return;
+  await capacitor()?.Plugins?.NativePush?.clearChannel({ tag });
+}
+
+/**
+ * Tapping a notification has to land on the message it is about. `url` is
+ * the payload's path on this instance. Register early: a tap that launched
+ * the app is held until the first listener is added.
+ */
 export function onNotificationTap(handler: (url: string) => void): void {
-  capacitor()?.addListener?.('PushNotifications', 'pushNotificationActionPerformed', (data) => {
-    const url = (data as { notification?: { data?: { url?: string } } }).notification?.data?.url;
+  // Through the plugin's own addListener: that is the call that releases an
+  // event the native side retained.
+  void capacitor()?.Plugins?.NativePush?.addListener('notificationTapped', (data: unknown) => {
+    const url = (data as { url?: string }).url;
     if (url) handler(url);
   });
 }

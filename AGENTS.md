@@ -18,6 +18,12 @@ frontend from a user-configured instance.
   — the native halves of `ServerConfig`.
 - `ios/App/App/NativeAuthPlugin.swift`, `android/.../NativeAuthPlugin.java` —
   passkey sign-in via the browser handoff. See README, "Signing in".
+- `NativePush` — push through the relay. See README, "Push".
+  `src/plugins/nativePush.ts`; iOS `App/NativePushPlugin.swift`, the
+  `NotificationService` extension target, and `ios/App/Shared/WebPush.swift`
+  (compiled into both targets); Android `NativePushPlugin`,
+  `HashtMessagingService`, `PushStore`, `PushRelay`, `PushNotifications`,
+  `WebPushCrypto`.
 - `android/.../CallSessionPlugin.java`, `OngoingCallService.java` — Android-only;
   keeps the mic alive during a backgrounded call. See README, "Calls in the
   background".
@@ -42,6 +48,10 @@ frontend from a user-configured instance.
 - Release versions are never written into tracked files: iOS gets `xcargs`
   overrides, Android gets `-PhashtVersion*`. A workflow that starts committing
   a version bump has broken that rule.
+- New iOS files go in `project.pbxproj` for every target that needs them —
+  `Shared/WebPush.swift` is in both App and NotificationService. The
+  extension's `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` must match the
+  app's; the release `xcargs` override both.
 - `ios/.../xcshareddata/xcschemes/App.xcscheme` is committed on purpose — Xcode
   only autocreates it under the gitignored `xcuserdata/`, leaving CI with no
   scheme.
@@ -52,7 +62,8 @@ frontend from a user-configured instance.
 ```sh
 npx tsc --noEmit
 npm run build
-cd android && ./gradlew :app:compileDebugJavaWithJavac
+scripts/test-webpush-ios.sh
+cd android && ./gradlew :app:compileDebugJavaWithJavac :app:testDebugUnitTest
 cd ios/App && xcodebuild -scheme App -destination 'generic/platform=iOS' \
   -configuration Debug CODE_SIGNING_ALLOWED=NO build
 ```
@@ -64,4 +75,5 @@ cd ios/App && xcodebuild -scheme App -destination 'generic/platform=iOS' \
 - `Hasht-net/hasht-desktop` — Electron shell; same thin-client idea, and the
   precedent for the native-bridge pattern (`src/main/screenShare.ts`,
   `src/main/nativeAuth.ts`).
-- Push relay — separate repo, not yet created.
+- `Hasht-net/hasht-push-relay` — the push relay `NativePush` registers with
+  (Rust; Web Push in, APNs/FCM out). Not yet on GitHub or deployed.
