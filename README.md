@@ -42,9 +42,11 @@ clears the active server — keeping it in the list — and returns to the wizar
 Two platform gestures remain, neither of them chrome:
 
 - **iOS** — left-edge swipe; the wizard stays in the webview's history.
-- **Android** — system back walks the webview's history and, at the bottom of
-  it, sends the app to the background like any other app. It never switches
-  server; that is `ServerConfig.reset()`.
+- **Android** — system back first closes whatever the page has open: the shell
+  sends the page an Escape keydown, and the page cancels it if it acted on it.
+  Otherwise back walks the webview's history and, at the bottom of it, sends
+  the app to the background like any other app. It never switches server; that
+  is `ServerConfig.reset()`.
 
 **Open gap:** until the frontend ships that control, a signed-out user on the
 wrong instance has only the edge swipe. Offer it from the signed-out screen as
