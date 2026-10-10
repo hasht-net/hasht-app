@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Capacitor mobile shell for Hasht — thin client, loads a user-configured server URL.",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "build": "vite build",
