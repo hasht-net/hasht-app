@@ -2,6 +2,7 @@ import Capacitor
 import Foundation
 import UIKit
 import UserNotifications
+import WebKit
 
 private struct ServerEntry: Codable {
     let id: String
@@ -32,7 +33,9 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "remove", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "rename", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "reset", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "setTheme", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "setTheme", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getLinkMode", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setLinkMode", returnType: CAPPluginReturnPromise)
     ]
 
     private static let serversKey = "net.hasht.app.servers"
@@ -125,8 +128,17 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     /// deliberately does *not* navigate — signing out leaves you on the same
     /// instance's login screen, as it does on the web.
     ///
-    /// Where push unregistration belongs once push exists.
+    /// Ends this instance's push registration too, so a page that forgets to
+    /// call `NativePush.unregister` doesn't leave the next user's phone
+    /// receiving the last one's messages.
     @objc func signOut(_ call: CAPPluginCall) {
+        if let push = bridge?.plugin(withName: "NativePush") as? NativePushPlugin {
+            Task { @MainActor in
+                if let url = self.bridge?.webView?.url, ["https", "http"].contains(url.scheme) {
+                    await push.unregister(origin: Self.originKey(url))
+                }
+            }
+        }
         DispatchQueue.main.async {
             UNUserNotificationCenter.current().removeAllDeliveredNotifications()
             if #available(iOS 16.0, *) {
@@ -178,10 +190,12 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         append(url: url, name: name).id
     }
 
-    func activate(_ id: String) {
+    /// Makes `id` active and loads it — at `url` if given, e.g. the message a
+    /// tapped notification is about.
+    func activate(_ id: String, loading url: String? = nil) {
         guard let entry = servers.first(where: { $0.id == id }) else { return }
         activeId = id
-        load(entry.url)
+        load(url ?? entry.url)
     }
 
     static func originKey(_ url: URL) -> String {
@@ -244,6 +258,35 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
             self?.webView?.scrollView.backgroundColor = color
             (controller as? MainViewController)?.setStatusBarDark(dark)
         }
+        call.resolve()
+    }
+
+    /// Links the user taps that leave the instance open per `LinkOpener`
+    /// instead of replacing the chat in the webview. Only user-activated links:
+    /// a server redirect through the instance's own SSO must still load.
+    override public func shouldOverrideLoad(_ navigationAction: WKNavigationAction) -> NSNumber? {
+        guard navigationAction.navigationType == .linkActivated,
+              navigationAction.targetFrame?.isMainFrame ?? true,
+              let url = navigationAction.request.url,
+              let app = webView?.url,
+              LinkOpener.leavesApp(url, app: app)
+        else { return nil }
+        DispatchQueue.main.async { [weak self] in
+            LinkOpener.open(url, from: self?.bridge?.viewController)
+        }
+        return true
+    }
+
+    @objc func getLinkMode(_ call: CAPPluginCall) {
+        call.resolve(["mode": LinkOpener.mode])
+    }
+
+    @objc func setLinkMode(_ call: CAPPluginCall) {
+        guard let mode = call.getString("mode"), [LinkOpener.inApp, LinkOpener.system].contains(mode) else {
+            call.reject("mode must be \"in-app\" or \"system\"")
+            return
+        }
+        LinkOpener.mode = mode
         call.resolve()
     }
 

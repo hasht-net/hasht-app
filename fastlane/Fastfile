@@ -14,6 +14,10 @@
 default_platform(:ios)
 
 APP_ID = "net.hasht.app"
+NSE_ID = "net.hasht.app.NotificationService"
+# Target => bundle id. The extension is signed with its own profile, and an
+# archive with an unsigned or mis-signed extension fails at upload.
+SIGNED_TARGETS = { "App" => APP_ID, "NotificationService" => NSE_ID }.freeze
 XCODEPROJ = "ios/App/App.xcodeproj"
 OUTPUT_DIR = "build"
 
@@ -36,20 +40,22 @@ platform :ios do
 
     # readonly: CI consumes the match repo, it never writes to it. Bootstrap is
     # a one-time local `bundle exec fastlane match appstore` — see README.
-    match(type: "appstore", app_identifier: APP_ID, readonly: true, api_key: api_key)
+    match(type: "appstore", app_identifier: SIGNED_TARGETS.values, readonly: true, api_key: api_key)
 
     # The Capacitor-generated project ships CODE_SIGN_STYLE = Automatic, which
-    # ignores the profile match just installed. Pin it to the match profile for
-    # the duration of this run.
-    update_code_signing_settings(
-      use_automatic_signing: false,
-      path: XCODEPROJ,
-      targets: ["App"],
-      team_id: ENV.fetch("APPLE_TEAM_ID"),
-      bundle_identifier: APP_ID,
-      code_sign_identity: "Apple Distribution",
-      profile_name: ENV.fetch("sigh_#{APP_ID}_appstore_profile-name"),
-    )
+    # ignores the profile match just installed. Pin each target to its match
+    # profile for the duration of this run.
+    SIGNED_TARGETS.each do |target, bundle_id|
+      update_code_signing_settings(
+        use_automatic_signing: false,
+        path: XCODEPROJ,
+        targets: [target],
+        team_id: ENV.fetch("APPLE_TEAM_ID"),
+        bundle_identifier: bundle_id,
+        code_sign_identity: "Apple Distribution",
+        profile_name: ENV.fetch("sigh_#{bundle_id}_appstore_profile-name"),
+      )
+    end
 
     api_key
   end
@@ -62,6 +68,9 @@ platform :ios do
       scheme: "App",
       configuration: "Release",
       export_method: "app-store",
+      export_options: {
+        provisioningProfiles: SIGNED_TARGETS.values.to_h { |id| [id, ENV.fetch("sigh_#{id}_appstore_profile-name")] },
+      },
       output_directory: OUTPUT_DIR,
       output_name: "Hasht.ipa",
       clean: true,

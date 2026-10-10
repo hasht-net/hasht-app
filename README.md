@@ -33,7 +33,7 @@ servers keeps sessions separate for free.
 
 **The frontend owns server switching**, and tells the shell when the user signs
 out (`ServerConfig.signOut`, which clears delivered notifications and the badge
-without navigating — the home for push unregistration later). The shell renders no control of its
+and ends that instance's push registration, without navigating). The shell renders no control of its
 own: anything it drew would sit over the chat UI forever, duplicating what the
 frontend can present properly in its settings. The frontend calls
 `ServerConfig.reset()` (see `forgetInstance()` in `src/integration/`), which
@@ -42,8 +42,9 @@ clears the active server — keeping it in the list — and returns to the wizar
 Two platform gestures remain, neither of them chrome:
 
 - **iOS** — left-edge swipe; the wizard stays in the webview's history.
-- **Android** — system back, which also clears the active server so the next
-  launch does not reload it.
+- **Android** — system back walks the webview's history and, at the bottom of
+  it, sends the app to the background like any other app. It never switches
+  server; that is `ServerConfig.reset()`.
 
 **Open gap:** until the frontend ships that control, a signed-out user on the
 wrong instance has only the edge swipe. Offer it from the signed-out screen as
@@ -52,6 +53,15 @@ well as from settings.
 `ServerConfig` is a small custom plugin (`ios/App/App/ServerConfigPlugin.swift`,
 `android/.../ServerConfigPlugin.java`) because Capacitor's `server.url` is
 static config and a self-hosted client needs it chosen at runtime.
+
+### Links to other sites
+
+Links that leave the instance's origin do not load in the chat webview (there
+would be no way back). They open in an in-app Custom Tab / Safari sheet by
+default, or in the default browser if the user picks `system`
+(`ServerConfig.getLinkMode` / `setLinkMode`; the frontend owns the setting UI,
+see `src/integration/hashtNative.ts`). Server redirects, e.g. through an
+instance's own SSO, still load in the webview.
 
 ### Where code runs
 
@@ -96,6 +106,71 @@ Two ways in:
 Each sign-in carries its own server, so several configured instances never
 cross. Coming back to the app while the browser is open cancels the sign-in.
 
+### Push
+
+The webviews have no Web Push, so the `NativePush` plugin stands in for
+`PushManager.subscribe()`. It registers the device with the Hasht push relay
+(`Hasht-net/hasht-push-relay`) and hands the page the same triple a browser
+subscription has; the instance stores it through its usual
+`/api/push/subscribe` and sends ordinary Web Push to the relay, which forwards
+to APNs or FCM.
+
+```
+instance ──Web Push (aes128gcm)──▶ relay ──▶ APNs ──▶ NotificationService (iOS extension)
+                                         └─▶ FCM  ──▶ HashtMessagingService (Android)
+```
+
+The payload is encrypted end to end (RFC 8291) to a key that never leaves the
+device: the relay, Apple and Google forward ciphertext. The device decrypts in
+the iOS Notification Service Extension or the Android messaging service, and
+replaces the relay's placeholder ("Hasht — New message") with the real text.
+
+- **One registration and keypair per instance.** The payload's `url` is only
+  a path, so the key that decrypts a push is how the device knows which
+  instance sent it. A tap on another instance's notification switches to it.
+- **Keys** live in the Keychain under the App Group `group.net.hasht.app`
+  (shared with the extension) on iOS, and in app storage wrapped by an Android
+  Keystore key on Android. Both are readable while the phone is locked.
+- **Per-channel replacement.** Android uses noncollapsible FCM data pushes
+  and replaces notifications locally by instance/channel. Encrypted database
+  timestamps order messages and edits; persisted high-water marks and removal
+  tombstones suppress duplicates and late alerts across process restarts.
+  Ordering state keeps 128 channels per instance, 2,048 total, for 26 hours
+  (message TTL is 24 hours). Exhausting capacity triggers recovery instead of
+  evicting protection and allowing withdrawn messages to reappear.
+  APNs uses the backend's per-channel `Topic` as its collapse ID.
+- **Edits and removes** (`kind: update | remove`) go to the app only — never
+  to browsers, whose service worker must show every push it gets. Android
+  suppresses withdrawn identities once their remove is delivered. FCM can
+  delay normal-priority removes; their one-hour TTL can expire before delivery.
+  iOS gets removes as background pushes,
+  which iOS throttles and never delivers to a force-quit app, so on iOS they
+  are best effort.
+- **Offline overflow.** FCM retains up to 100 noncollapsible events across all
+  instances on one device. When FCM reports dropped events, the app clears
+  stale notifications and persists recovery flags even if permission is denied.
+  A generic “Open Hasht to catch up” prompt opens the correct instance. Fresh
+  ordered pushes can still display; older queued pushes cannot recreate the
+  cleared notifications. The frontend acknowledges recovery only after loading
+  authenticated channel/read/unread state successfully. It cannot recreate
+  missed native previews while closed; authenticated background sync is a
+  planned follow-up. APNs retains only one offline notification per app/device.
+  Older backends without ordering metadata retain best-effort behavior;
+  following overflow their unversioned pushes are conservatively suppressed
+  for the protection window. Device/server clocks need to be roughly aligned.
+- **Foreground**: no banner for the instance on screen, as on the web.
+- `@capacitor/push-notifications` is gone: it can't share keys with an
+  extension and competed for the notification-center delegate.
+
+Android needs `google-services.json` (CI secret `GOOGLE_SERVICES`). A local
+build without it still compiles; `NativePush.register` then rejects with
+`unavailable`. Drop the file from the Firebase console into `android/app/`
+(gitignored) to receive pushes on a debug build.
+
+The decryptors are checked against RFC 8291's test vector:
+`scripts/test-webpush-ios.sh` (Swift, the code the extension runs) and
+`./gradlew :app:testDebugUnitTest` (Java).
+
 ### Calls in the background (Android)
 
 Android silences a backgrounded app's mic about six seconds after it leaves
@@ -119,7 +194,7 @@ npm run android        # opens Android Studio
 
 Capacitor 8 uses Swift Package Manager on iOS — **no CocoaPods required**.
 
-- Bundle ID: `net.hasht.app`
+- Bundle ID: `net.hasht.app` (extension: `net.hasht.app.NotificationService`)
 - Deep link scheme: `hasht://` (consumed by `auth::native`)
 - iOS declares `UIBackgroundModes: audio` — see "Open questions" below.
 
@@ -176,7 +251,7 @@ exist. Android still requires a keystore to produce a release build at all.
 | `ANDROID_KEY_ALIAS` | Android | key alias inside the keystore |
 | `ANDROID_KEY_PASS` | Android | key password (falls back to the store pass) |
 | `GOOGLE_PLAY_SERVICE_ACCOUNT` | Android | Play publisher service-account JSON |
-| `GOOGLE_SERVICES` | Android | base64 `google-services.json`, for FCM |
+| `GOOGLE_SERVICES` | Android | base64 `google-services.json`, for FCM (push) |
 | `ASC_API_ID` / `ASC_ISSUER_ID` / `ASC_API_KEY` | iOS | App Store Connect API key (`.p8`, raw or base64) |
 | `APPLE_ID` / `APPLE_TEAM_ID` | iOS | developer account and team |
 | `MATCH_PASSWORD` | iOS | passphrase for the match certificates repo |
@@ -199,8 +274,14 @@ MATCH_URL=git@github.com:Hasht-net/ios-match-certs.git \
 ```
 
 The Capacitor-generated project ships `CODE_SIGN_STYLE = Automatic`, which
-ignores a match profile; `prepare_signing` in `fastlane/Fastfile` pins the
-target to manual signing for the run. Versions are passed as `xcargs` build
+ignores a match profile; `prepare_signing` in `fastlane/Fastfile` pins each
+target to manual signing for the run. There are two: the app
+(`net.hasht.app`) and its Notification Service Extension
+(`net.hasht.app.NotificationService`), each with its own App ID and
+`appstore` profile in the match repo. Both App IDs need the App Group
+`group.net.hasht.app`; the app's also needs Push Notifications. Re-run
+`bundle exec fastlane match appstore` locally after creating the extension's
+App ID, so the match repo holds its profile. Versions are passed as `xcargs` build
 setting overrides (`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`) rather than
 edited into `project.pbxproj` — `Info.plist` already resolves both through
 `$(...)`, and nothing tracked gets mutated.
@@ -215,6 +296,8 @@ CI would find no scheme at all.
 `HASHT_KEYSTORE_PATH` is set, so a local `assembleRelease` still builds
 unsigned without the release secrets. `versionCode`/`versionName` come from
 `-PhashtVersionCode` / `-PhashtVersionName`, defaulting to `1` / `1.0`.
+`versionName` is the full tag without the `v` (`0.1.0-beta.3`) so the app can
+report it; Play only cares about `versionCode`. iOS must stay bare `X.Y.Z`.
 
 Play App Signing holds the real app key; the keystore above is the *upload*
 key.
@@ -240,7 +323,7 @@ Both stores need the app to exist before any automation can reach it:
 | Instance probe (native) | ✅ verified against chat.hasht.net |
 | Return to wizard | ⚠️ plugin method ready; awaiting the frontend control |
 | Connect buttons (tap-through) | ⚠️ not yet exercised — no touch input via simctl |
-| Push | ❌ not started — blocked on the relay |
+| Push (`NativePush`) | ✅ builds on both, decryptors pass RFC 8291 vector; ❌ not yet run on a device (needs the relay deployed, APNs key, Firebase project) |
 | Passkey sign-in (`NativeAuth`) | ✅ builds on both; ❌ not yet run on a device |
 | Frontend integration | ⚠️ contract drafted, not yet vendored into chat |
 
@@ -258,7 +341,8 @@ Four traps, all invisible to a green build:
    compiles your file still says BUILD SUCCEEDED.
 4. **Without `server.allowNavigation`, the instance opens in Safari** — Capacitor
    treats any origin outside its allowlist as external. Set to `['*']` because
-   the instance is user-supplied; see the TODO in `capacitor.config.ts`.
+   the instance is user-supplied. Links to other origins are then intercepted
+   natively; see "Links to other sites".
 5. **Capacitor re-raises the webview across navigations.** A native overlay
    added in `viewDidLoad` is on top at launch and behind the page after the
    first navigation, so it must reclaim the top in `viewDidLayoutSubviews` —
@@ -283,9 +367,12 @@ Four traps, all invisible to a green build:
 2. Confirm the Capacitor bridge is reachable from the remote origin (the app
    loads it; nothing has called a plugin from there yet). Everything in
    `src/integration/` depends on this.
-3. Push: build the APNs relay (separate repo), add a backend endpoint for
-   native device tokens, add a Notification Service Extension here to decrypt
-   the aes128gcm payload.
+3. Push: run it on devices. The relay, `NativePush`, the extension and the
+   backend side are built; what's left needs accounts and hardware — deploy
+   the relay, create the APNs key, Firebase project and the extension's App
+   ID/profile, then work through the device matrix (killed / locked /
+   foreground, replace, edit, delete, read elsewhere, sign-out, uninstall).
+   Measure how reliably iOS delivers background removes.
 4. Frontend: a "switch server" control calling `forgetInstance()`, reachable
    both signed-in and signed-out. Closes the gap above.
 5. Run passkey sign-in on real devices against chat.hasht.net and a

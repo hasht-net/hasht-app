@@ -50,6 +50,7 @@ jobs:
     outputs:
       tag: ${{ steps.resolve.outputs.tag }}
       version: ${{ steps.resolve.outputs.version }}
+      display_version: ${{ steps.resolve.outputs.display_version }}
       build: ${{ steps.resolve.outputs.build }}
       sha: ${{ steps.resolve.outputs.sha }}
       prerelease: ${{ steps.resolve.outputs.prerelease }}
@@ -79,11 +80,14 @@ jobs:
           esac
           # Both stores want a bare X.Y.Z marketing version, so the -beta.N
           # suffix is dropped. The tag itself stays on the GitHub release.
-          version="${tag#v}"
-          version="${version%%-*}"
+          # Android's versionName is free-form and is what the app reports
+          # about itself, so it keeps the full tag minus the `v`.
+          display_version="${tag#v}"
+          version="${display_version%%-*}"
           {
             echo "tag=$tag"
             echo "version=$version"
+            echo "display_version=$display_version"
             # Monotonic across every run of this workflow, and shared by both
             # platforms so a given build number means the same binary pair.
             echo "build=${{ github.run_number }}"
@@ -97,6 +101,7 @@ jobs:
         run: |
           echo "tag=${{ steps.resolve.outputs.tag }}"
           echo "version=${{ steps.resolve.outputs.version }}"
+          echo "display_version=${{ steps.resolve.outputs.display_version }}"
           echo "build=${{ steps.resolve.outputs.build }}"
           echo "sha=${{ steps.resolve.outputs.sha }}"
           echo "prerelease=${{ steps.resolve.outputs.prerelease }}"
@@ -185,7 +190,7 @@ jobs:
           chmod +x ./gradlew
           ./gradlew bundleRelease assembleRelease \
             -PhashtVersionCode=${{ needs.meta.outputs.build }} \
-            -PhashtVersionName=${{ needs.meta.outputs.version }}
+            -PhashtVersionName=${{ needs.meta.outputs.display_version }}
 
       - name: "Debug Outputs"
         continue-on-error: true
@@ -256,7 +261,7 @@ jobs:
           {
             echo "## Android ${{ needs.meta.outputs.tag }}"
             echo
-            echo "- version: \`${{ needs.meta.outputs.version }}\` (code \`${{ needs.meta.outputs.build }}\`)"
+            echo "- version: \`${{ needs.meta.outputs.display_version }}\` (code \`${{ needs.meta.outputs.build }}\`)"
             echo "- play track: \`${{ needs.meta.outputs.prerelease == 'true' && 'internal' || 'production' }}\`"
             echo "- play upload: \`${{ steps.play.outputs.ready || 'false' }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

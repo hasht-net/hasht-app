@@ -37,6 +37,15 @@
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
+        <!-- Decrypts the push relay's FCM data messages; see HashtMessagingService. -->
+        <service
+            android:name=".HashtMessagingService"
+            android:exported="false">
+            <intent-filter android:priority="1">
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

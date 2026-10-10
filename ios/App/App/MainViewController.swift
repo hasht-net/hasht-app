@@ -21,12 +21,20 @@ class MainViewController: CAPBridgeViewController {
     }
     private let serverConfig = ServerConfigPlugin()
     private let nativeAuth = NativeAuthPlugin()
+    private let nativePush = NativePushPlugin()
+    // WKWebView holds its delegates weakly.
+    private var linkDelegate: LinkUIDelegate?
     private var insetScript: WKUserScript?
     private var published: UIEdgeInsets = .init(top: -1, left: -1, bottom: -1, right: -1)
 
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(serverConfig)
         bridge?.registerPluginInstance(nativeAuth)
+        bridge?.registerPluginInstance(nativePush)
+        if let webView = webView, let original = webView.uiDelegate {
+            linkDelegate = LinkUIDelegate(wrapping: original, presenter: self)
+            webView.uiDelegate = linkDelegate
+        }
     }
 
     override func viewDidLoad() {

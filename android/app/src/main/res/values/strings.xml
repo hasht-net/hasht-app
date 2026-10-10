@@ -7,4 +7,6 @@
     <string name="call_channel_name">Ongoing calls</string>
     <string name="call_notification_title">Call in progress</string>
     <string name="call_notification_text">Tap to return to the call</string>
+    <string name="notification_push_recovery">Open Hasht to catch up</string>
+    <string name="notification_channel_messages">Messages</string>
 </resources>

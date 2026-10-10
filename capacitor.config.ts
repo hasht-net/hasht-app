@@ -11,8 +11,8 @@ const config: CapacitorConfig = {
     // The instance is arbitrary and user-supplied, so no fixed allowlist can
     // describe it. Without this Capacitor treats the configured server as
     // "external" and punts it to Safari instead of loading it in-app.
-    // TODO: narrow to the active instance's host via a navigation policy in
-    // MainViewController, so stray links still open in the system browser.
+    // Links that leave the instance are caught natively and opened outside the
+    // webview instead (LinkOpener on both platforms).
     allowNavigation: ['*'],
   },
   ios: {
@@ -25,9 +25,6 @@ const config: CapacitorConfig = {
     allowMixedContent: false,
   },
   plugins: {
-    PushNotifications: {
-      presentationOptions: ['badge', 'sound', 'alert'],
-    },
     Keyboard: {
       // The frontend declares interactive-widget=resizes-content and owns
       // inset handling in useViewportKeyboard; letting the plugin resize the

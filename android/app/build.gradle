@@ -54,6 +54,10 @@ dependencies {
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation "androidx.browser:browser:$androidxBrowserVersion"
     implementation project(':capacitor-android')
+    // FCM for NativePush. Needs google-services.json at runtime too; without
+    // it the app builds and NativePush.register rejects with `unavailable`.
+    implementation platform("com.google.firebase:firebase-bom:$firebaseBomVersion")
+    implementation "com.google.firebase:firebase-messaging"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
