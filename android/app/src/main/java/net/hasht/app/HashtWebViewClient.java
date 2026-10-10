@@ -20,6 +20,27 @@ class HashtWebViewClient extends BridgeWebViewClient {
         this.bridge = bridge;
     }
 
+    // The frontend is remote, so its stylesheet can't be changed from here.
+    // Without this Chromium paints a hard blue rectangle over whatever is
+    // tapped, which reads as a web page rather than an app.
+    private static final String NO_TAP_HIGHLIGHT =
+        "(function(){if(document.getElementById('hasht-no-tap-highlight'))return;"
+            + "var s=document.createElement('style');s.id='hasht-no-tap-highlight';"
+            + "s.textContent='*{-webkit-tap-highlight-color:transparent}';"
+            + "(document.head||document.documentElement).appendChild(s);})();";
+
+    @Override
+    public void onPageCommitVisible(WebView view, String url) {
+        super.onPageCommitVisible(view, url);
+        view.evaluateJavascript(NO_TAP_HIGHLIGHT, null);
+    }
+
+    @Override
+    public void onPageFinished(WebView view, String url) {
+        super.onPageFinished(view, url);
+        view.evaluateJavascript(NO_TAP_HIGHLIGHT, null);
+    }
+
     @Override
     public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
         Uri url = request.getUrl();
