@@ -27,7 +27,7 @@ frontend from a user-configured instance.
 - `android/.../CallSessionPlugin.java`, `OngoingCallService.java` — Android-only;
   keeps the mic alive during a backgrounded call. See README, "Calls in the
   background".
-- `.github/workflows/draft.yaml` — rolling draft release on `main`, same as
+- `.github/workflows/draft.yaml` — rolling beta + stable CalVer drafts on `main`, same as
   `hasht-chat`. `.github/workflows/release.yaml` — on publish, one job per
   platform sharing a single build number. `fastlane/` is the iOS half of that;
   Android is Gradle plus the Play publisher API. See README, "Releasing".

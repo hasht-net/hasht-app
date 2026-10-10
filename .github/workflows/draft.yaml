@@ -1,29 +1,46 @@
 name: "Draft Release"
 
-# Keeps a draft release open on top of main. Every push deletes the previous
-# draft and recreates it with the next version and freshly generated notes, so
-# it always reflects exactly what is unreleased.
+# Keeps two draft releases open on top of main — a beta track and a stable
+# track — so either can be published without hand-editing a tag first. Every
+# push deletes each track's previous draft and recreates it with that track's
+# next version and freshly generated notes, so each always reflects exactly
+# what is unreleased on that track.
 #
-# Publishing is manual: edit the draft in the Releases UI and hit publish.
-# Publishing is what triggers release.yaml — see that file for what ships where.
+# Tags are CalVer (YYYY.MM.NN in UTC), not semver — e.g. 2026.10.00-beta.0 on
+# the beta track, 2026.10.00 on the stable track. NN resets to 00 on month
+# rollover and is shared across tracks within a month (stable claims the next
+# NN; a beta claims the NN *after* the last stable once one exists this
+# month, per the action's own getNextCalver).
 #
-# The last release's tag is the source of truth: v0.1.0-beta.1 -> v0.1.0-beta.2.
-# To cut a stable version, edit the draft's tag by hand before publishing.
+# The action tells the tracks apart by the draft's `prerelease` flag, so they
+# never clobber each other.
+#
+# Publishing is manual: open the draft in the Releases UI and hit publish.
+# Want something other than the next NN (a deliberate skip, a hand-picked
+# month)? Edit the draft's tag by hand right before publishing — any edit
+# left unpublished is overwritten by the next push.
+#
 # Requires an existing release to bump from — no-ops on a repo with none.
+#
+# Pinned past @v0 to the `calver` branch's head commit: calendar versioning
+# (PR https://github.com/cssnr/draft-release-action/pull/11) isn't in a
+# tagged release yet. Re-pin to a tagged version once that PR merges and
+# ships; `semver`/`identifier` stay required inputs even in calver mode (the
+# action still validates them) but are ignored.
 
 on:
   workflow_dispatch:
   push:
     branches: ["main"]
 
-# A burst of merges should only leave one draft standing.
+# A burst of merges should only leave one draft standing per track.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  draft:
-    name: "Draft Release"
+  draft-beta:
+    name: "Draft Beta Release"
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -32,10 +49,33 @@ jobs:
     steps:
       - name: "Draft Release Action"
         id: draft
-        uses: cssnr/draft-release-action@v0
+        uses: cssnr/draft-release-action@3de37ac19d270dc260cfecc8fbd7cd9f8ee44ea1 # calver branch, PR #11 (unmerged)
         with:
+          calver: true
           semver: prerelease
           identifier: beta
+          prerelease: true
+          prefix: v
+
+      - name: "Echo Draft URL"
+        run: |
+          echo "url: ${{ steps.draft.outputs.url }}"
+
+  draft-stable:
+    name: "Draft Stable Release"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+
+    steps:
+      - name: "Draft Release Action"
+        id: draft
+        uses: cssnr/draft-release-action@3de37ac19d270dc260cfecc8fbd7cd9f8ee44ea1 # calver branch, PR #11 (unmerged)
+        with:
+          calver: true
+          semver: patch
+          prerelease: false
           prefix: v
 
       - name: "Echo Draft URL"

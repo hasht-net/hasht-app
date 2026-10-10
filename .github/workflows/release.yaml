@@ -4,8 +4,8 @@ name: "Release"
 # platform. Both share one build number reserved from the same sequence used
 # by local builds, so manual Play uploads cannot collide with CI run numbers.
 #
-#   prerelease (v0.1.0-beta.3)  ->  TestFlight  +  Play internal track
-#   stable     (v0.1.0)         ->  App Store Connect  +  Play production
+#   prerelease (v2026.10.02-beta.1)  ->  TestFlight  +  Play internal track
+#   stable     (v2026.10.02)         ->  App Store Connect  +  Play production
 #
 # Neither store submission is automatic: the iOS lane creates the version and
 # stops, the Play upload lands in a draft-able track. A human presses submit.
@@ -21,7 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to build (e.g. v0.1.0)"
+        description: "Release tag to build (e.g. v2026.10.02)"
         required: true
         type: string
       platforms:
