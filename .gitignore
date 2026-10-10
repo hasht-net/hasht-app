@@ -29,7 +29,17 @@ fastlane/test_output/
 # Signing / secrets — never commit
 *.p8
 *.p12
+*.pfx
+*.pem
+*.key
 *.mobileprovision
 .env
+.env.*
+!.env.example
+!.env.*.example
 *.keystore
 *.jks
+*service-account*.json
+*service_account*.json
+*.apk
+*.aab

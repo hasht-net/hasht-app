@@ -317,9 +317,8 @@ exist. Android still requires a keystore to produce a release build at all.
 | `MATCH_SSH_KEY` | iOS | deploy key with read access to that repo |
 | `DISCORD_WEBHOOK` | both | failure notifications |
 
-Plus one repository **variable**: `MATCH_URL`, the SSH URL of the private
-certificates repo (`git@github.com:Hasht-net/ios-match-certs.git`) — the
-sibling of `django-files/ios-match-certs`.
+Plus one repository **variable**: `MATCH_URL`, the SSH URL of your private
+certificates repo. Keep signing credentials and certificates outside this repo.
 
 ### iOS signing
 
@@ -328,7 +327,7 @@ never writes to it. Bootstrap it once, locally:
 
 ```sh
 bundle install
-MATCH_URL=git@github.com:Hasht-net/ios-match-certs.git \
+MATCH_URL=git@github.com:YOUR_ORG/YOUR_PRIVATE_CERTIFICATES_REPO.git \
   bundle exec fastlane match appstore
 ```
 
@@ -456,3 +455,8 @@ Four traps, all invisible to a green build:
   indefinitely.
 - **Plain-HTTP instances.** `NSAllowsLocalNetworking` covers LAN; a public
   HTTP-only instance is currently refused. Probably correct, worth confirming.
+
+## License
+
+[MIT](LICENSE), copyright © 2026 Ralph Luaces. Third-party components retain
+their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
