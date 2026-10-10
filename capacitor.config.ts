@@ -7,6 +7,7 @@ const config: CapacitorConfig = {
   appId: 'net.hasht.app',
   appName: 'Hasht',
   webDir: 'dist',
+  backgroundColor: '#151517',
   server: {
     // The instance is arbitrary and user-supplied, so no fixed allowlist can
     // describe it. Without this Capacitor treats the configured server as
@@ -25,6 +26,11 @@ const config: CapacitorConfig = {
     allowMixedContent: false,
   },
   plugins: {
+    App: {
+      // MainActivity owns Android back. Left on, this handler swallows back
+      // whenever the webview has no history.
+      disableBackButtonHandler: true,
+    },
     Keyboard: {
       // The frontend declares interactive-widget=resizes-content and owns
       // inset handling in useViewportKeyboard; letting the plugin resize the

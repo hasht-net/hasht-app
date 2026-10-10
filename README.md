@@ -6,6 +6,33 @@ loads a user-configured server URL. iOS and Android.
 Sibling of `hasht-desktop` (Electron). Both wrap the same Vue frontend; neither
 contains a copy of it.
 
+## Launcher icons
+
+`assets/branding/hasht-mark.png` is the supplied flat gradient logo. Run
+`python3 scripts/generate-icons.py` (requires Pillow) to regenerate the committed
+native assets; release builds use these files directly, with no generation step.
+
+iOS uses `Assets.xcassets/AppIcon.appiconset` with default, dark, and tinted
+appearances. The default has a light background, the dark mark lets iOS supply
+its dark background, and the tinted icon is a white silhouette on black. The
+logo occupies 78% of the canvas width; iOS supplies the icon shape.
+
+Android uses a transparent foreground on a separate neutral light/dark
+background, plus a monochrome silhouette for themed icons. The mark fits inside
+a 62 dp circle within the 66 dp safe zone on the 108 dp adaptive layer.
+Both default and night configurations use adaptive XML so dark-mode legacy
+PNGs cannot override the launcher-selected shape. Launcher support and settings
+determine whether night resources or wallpaper-derived themed colors appear.
+Legacy square and round icons are generated for Android 7. Capacitor sync
+preserves these native resources.
+
+## Launch screen
+
+Native startup is dark (`#151517`), including the WebView before the page paints.
+Android 12+ shows the transparent Hasht mark in its system splash; older Android
+and iOS use a plain dark launch screen. No timed splash or native loading overlay
+holds back the remote web app's own loading screen.
+
 ## Architecture
 
 The shell **remote-loads** the frontend from whichever instance the user
@@ -42,13 +69,14 @@ clears the active server — keeping it in the list — and returns to the wizar
 Two platform gestures remain, neither of them chrome:
 
 - **iOS** — left-edge swipe; the wizard stays in the webview's history.
-- **Android** — system back walks the webview's history and, at the bottom of
-  it, sends the app to the background like any other app. It never switches
-  server; that is `ServerConfig.reset()`.
+- **Android** — system back first closes whatever the page has open: the shell
+  sends the page an Escape keydown, and the page cancels it if it acted on it.
+  Otherwise back walks the webview's history and, at the bottom of it, sends
+  the app to the background like any other app. It never switches server; that
+  is `ServerConfig.reset()`.
 
-**Open gap:** until the frontend ships that control, a signed-out user on the
-wrong instance has only the edge swipe. Offer it from the signed-out screen as
-well as from settings.
+The frontend offers it from the signed-out screen ("Change server"), settings,
+and the server rail.
 
 `ServerConfig` is a small custom plugin (`ios/App/App/ServerConfigPlugin.swift`,
 `android/.../ServerConfigPlugin.java`) because Capacitor's `server.url` is
@@ -208,9 +236,9 @@ Two workflows, mirroring `Hasht-net/hasht-chat`:
   the draft in the Releases UI and hit publish. To cut a stable version, change
   the draft's tag to `v0.1.0` and clear the prerelease flag before publishing.
 
-- **`.github/workflows/release.yaml`** — runs on publish, one job per platform
-  so both binaries share a single build number (`github.run_number`). Stores
-  reject a build number that goes backwards, and split workflows would drift.
+- **`.github/workflows/release.yaml`** — runs on publish, one job per platform.
+  Both binaries share one build number reserved from the same sequence used
+  by local builds. Stores reject reused or decreasing build numbers.
 
 | release | iOS | Android |
 |---|---|---|
@@ -223,6 +251,37 @@ self-hoster can sideload the exact build that went to the stores.
 
 `workflow_dispatch` rebuilds an existing tag (`tag` input) and can target one
 platform (`platforms: ios | android | both`) to retry a single leg.
+
+### Build numbers for local and CI builds
+
+`scripts/reserve-build-number.py` reserves the next number by creating a
+lightweight GitHub tag `build-number/N` at the commit being built. CI uses its
+existing repository token; local builds need `gh auth login` with repository
+write access. These tags are reservations, not published releases. CI previously
+reached build 4 and the local Play beta used 5, so the first reservation is **6**.
+
+Before a local signed build, commit and push its code, then run from that
+checkout:
+
+```sh
+HASHT_BUILD_CODE=$(python3 scripts/reserve-build-number.py)
+cd android
+./gradlew :app:bundleRelease \
+  -PhashtVersionCode="$HASHT_BUILD_CODE" \
+  -PhashtVersionName=0.1.0
+```
+
+Use the same number for iOS `BUILD_NUMBER` if building both platforms. Signing
+credentials must already be loaded. Reserve once per build, keep reservation
+tags, and never reuse a number after an upload or failed build. Unused numbers
+are harmless. The shared integer is capped at Google Play's version-code limit
+of 2,100,000,000.
+
+CI releases run one at a time across all tags. Keep local store uploads ordered
+with CI uploads too: upload a reserved build before starting a newer store
+build. To get a fresh number after a CI upload failure, use **Re-run all jobs**
+or a new workflow dispatch. **Re-run failed jobs** reuses the successful meta
+job's number and may collide with an upload that already succeeded.
 
 ### The shared build step
 
@@ -258,9 +317,8 @@ exist. Android still requires a keystore to produce a release build at all.
 | `MATCH_SSH_KEY` | iOS | deploy key with read access to that repo |
 | `DISCORD_WEBHOOK` | both | failure notifications |
 
-Plus one repository **variable**: `MATCH_URL`, the SSH URL of the private
-certificates repo (`git@github.com:Hasht-net/ios-match-certs.git`) — the
-sibling of `django-files/ios-match-certs`.
+Plus one repository **variable**: `MATCH_URL`, the SSH URL of your private
+certificates repo. Keep signing credentials and certificates outside this repo.
 
 ### iOS signing
 
@@ -269,7 +327,7 @@ never writes to it. Bootstrap it once, locally:
 
 ```sh
 bundle install
-MATCH_URL=git@github.com:Hasht-net/ios-match-certs.git \
+MATCH_URL=git@github.com:YOUR_ORG/YOUR_PRIVATE_CERTIFICATES_REPO.git \
   bundle exec fastlane match appstore
 ```
 
@@ -397,3 +455,8 @@ Four traps, all invisible to a green build:
   indefinitely.
 - **Plain-HTTP instances.** `NSAllowsLocalNetworking` covers LAN; a public
   HTTP-only instance is currently refused. Probably correct, worth confirming.
+
+## License
+
+[MIT](LICENSE), copyright © 2026 Ralph Luaces. Third-party components retain
+their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
