@@ -21,24 +21,39 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         getBridge().setWebViewClient(new HashtWebViewClient(getBridge()));
 
-        // After super: the App plugin registers its own callback during
-        // onCreate, and the most recently added one runs first. Its handler
-        // swallows back when there is no history, which is what left users
-        // stuck on the picker.
+        // The App plugin's own back handler is off (capacitor.config.ts); it
+        // swallowed back with no history, which left users stuck on the picker.
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
                 WebView webView = getBridge().getWebView();
-                if (webView.canGoBack()) {
-                    webView.goBack();
-                } else {
-                    // Leave like any other app, but keep the process: finish()
-                    // would drop a live call's webview.
-                    moveTaskToBack(true);
-                }
+                webView.evaluateJavascript(DISMISS_TOP_LAYER, handled -> {
+                    if ("true".equals(handled)) return;
+                    if (webView.canGoBack()) {
+                        webView.goBack();
+                    } else {
+                        // Leave like any other app, but keep the process: finish()
+                        // would drop a live call's webview.
+                        moveTaskToBack(true);
+                    }
+                });
             }
         });
     }
+
+    /**
+     * Back closes whatever the page has open first, the way Escape does on
+     * desktop. The frontend cancels an Escape it acted on, so that is the
+     * signal; a page that ignores it (the picker, an older instance) falls
+     * through to history and then leaving.
+     */
+    private static final String DISMISS_TOP_LAYER =
+        "(function () {"
+            + "var e = new KeyboardEvent('keydown', {key: 'Escape', code: 'Escape',"
+            + " keyCode: 27, bubbles: true, cancelable: true});"
+            + "(document.activeElement || document.body || document).dispatchEvent(e);"
+            + "return e.defaultPrevented;"
+            + "})()";
 
     /** Whether the app is on screen; pushes for the instance shown are skipped. */
     private static volatile boolean visible;

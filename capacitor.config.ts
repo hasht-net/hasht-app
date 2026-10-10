@@ -25,6 +25,11 @@ const config: CapacitorConfig = {
     allowMixedContent: false,
   },
   plugins: {
+    App: {
+      // MainActivity owns Android back. Left on, this handler swallows back
+      // whenever the webview has no history.
+      disableBackButtonHandler: true,
+    },
     Keyboard: {
       // The frontend declares interactive-widget=resizes-content and owns
       // inset handling in useViewportKeyboard; letting the plugin resize the

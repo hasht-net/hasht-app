@@ -10,6 +10,10 @@
  * The native bridge (`window.Capacitor`) is injected into whatever origin the
  * webview loads, so the remote frontend can reach plugins without this repo's
  * assets being involved at all.
+ *
+ * Android back has no API: the shell dispatches an Escape keydown and treats
+ * it as handled only if the page cancels it. A handler that closes something
+ * on Escape must call `preventDefault()`; one that doesn't must not.
  */
 
 type PluginRegistry = Record<string, Record<string, (...args: unknown[]) => Promise<unknown>>>;
