@@ -18,6 +18,10 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(CallSessionPlugin.class);
         registerPlugin(NativeAuthPlugin.class);
         registerPlugin(NativePushPlugin.class);
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            // Let the system splash leave on the first frame; the web app owns loading.
+            androidx.core.splashscreen.SplashScreen.installSplashScreen(this);
+        }
         super.onCreate(savedInstanceState);
         getBridge().setWebViewClient(new HashtWebViewClient(getBridge()));
 

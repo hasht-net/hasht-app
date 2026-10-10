@@ -7,6 +7,7 @@ const config: CapacitorConfig = {
   appId: 'net.hasht.app',
   appName: 'Hasht',
   webDir: 'dist',
+  backgroundColor: '#151517',
   server: {
     // The instance is arbitrary and user-supplied, so no fixed allowlist can
     // describe it. Without this Capacitor treats the configured server as
