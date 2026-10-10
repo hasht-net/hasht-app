@@ -230,11 +230,11 @@ Capacitor 8 uses Swift Package Manager on iOS — **no CocoaPods required**.
 
 Two workflows, mirroring `Hasht-net/hasht-chat`:
 
-- **`.github/workflows/draft.yaml`** — every push to `main` recreates a single
-  draft release with freshly generated notes and the next version
-  (`v0.1.0-beta.1` → `v0.1.0-beta.2`). Nothing ships. Publishing is manual: edit
-  the draft in the Releases UI and hit publish. To cut a stable version, change
-  the draft's tag to `v0.1.0` and clear the prerelease flag before publishing.
+- **`.github/workflows/draft.yaml`** — every push to `main` recreates two draft
+  releases with freshly generated notes: a beta track (`v2026.10.02-beta.1`,
+  prerelease) and a stable track (`v2026.10.02`). Versions are CalVer
+  (`YYYY.MM.NN`, UTC), as in chat. Nothing ships. Publishing is manual: open
+  the draft you want in the Releases UI and hit publish — no tag editing.
 
 - **`.github/workflows/release.yaml`** — runs on publish, one job per platform.
   Both binaries share one build number reserved from the same sequence used
@@ -242,8 +242,8 @@ Two workflows, mirroring `Hasht-net/hasht-chat`:
 
 | release | iOS | Android |
 |---|---|---|
-| prerelease `v0.1.0-beta.3` | TestFlight | Play `internal`, rolled out |
-| stable `v0.1.0` | App Store Connect version, **not** submitted | Play `production`, **draft** |
+| prerelease `v2026.10.02-beta.1` | TestFlight | Play `internal`, rolled out |
+| stable `v2026.10.02` | App Store Connect version, **not** submitted | Play `production`, **draft** |
 
 Neither store submission is automatic — the last step is always a human. Both
 jobs also attach their artifact (`.ipa`, `.apk`) to the GitHub release, so a
