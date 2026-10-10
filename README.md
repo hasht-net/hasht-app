@@ -6,6 +6,24 @@ loads a user-configured server URL. iOS and Android.
 Sibling of `hasht-desktop` (Electron). Both wrap the same Vue frontend; neither
 contains a copy of it.
 
+## Launcher icons
+
+`assets/branding/hasht-mark.png` is the supplied flat gradient logo. Run
+`python3 scripts/generate-icons.py` (requires Pillow) to regenerate the committed
+native assets; release builds use these files directly, with no generation step.
+
+iOS uses `Assets.xcassets/AppIcon.appiconset` with default, dark, and tinted
+appearances. The default has a light background, the dark mark lets iOS supply
+its dark background, and the tinted icon is a white silhouette on black. The
+logo occupies 78% of the canvas width; iOS supplies the icon shape.
+
+Android uses a transparent foreground on a separate neutral light/dark
+background, plus a monochrome silhouette for themed icons. The mark fits inside
+the 66 dp safe circle on the 108 dp adaptive layer. Launcher support and settings
+determine whether night resources or wallpaper-derived themed colors appear.
+Legacy square and round icons are generated for Android 7. Capacitor sync
+preserves these native resources.
+
 ## Architecture
 
 The shell **remote-loads** the frontend from whichever instance the user
