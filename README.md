@@ -48,9 +48,8 @@ Two platform gestures remain, neither of them chrome:
   the app to the background like any other app. It never switches server; that
   is `ServerConfig.reset()`.
 
-**Open gap:** until the frontend ships that control, a signed-out user on the
-wrong instance has only the edge swipe. Offer it from the signed-out screen as
-well as from settings.
+The frontend offers it from the signed-out screen ("Change server"), settings,
+and the server rail.
 
 `ServerConfig` is a small custom plugin (`ios/App/App/ServerConfigPlugin.swift`,
 `android/.../ServerConfigPlugin.java`) because Capacitor's `server.url` is
