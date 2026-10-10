@@ -19,10 +19,19 @@ logo occupies 78% of the canvas width; iOS supplies the icon shape.
 
 Android uses a transparent foreground on a separate neutral light/dark
 background, plus a monochrome silhouette for themed icons. The mark fits inside
-the 66 dp safe circle on the 108 dp adaptive layer. Launcher support and settings
+a 62 dp circle within the 66 dp safe zone on the 108 dp adaptive layer.
+Both default and night configurations use adaptive XML so dark-mode legacy
+PNGs cannot override the launcher-selected shape. Launcher support and settings
 determine whether night resources or wallpaper-derived themed colors appear.
 Legacy square and round icons are generated for Android 7. Capacitor sync
 preserves these native resources.
+
+## Launch screen
+
+Native startup is dark (`#151517`), including the WebView before the page paints.
+Android 12+ shows the transparent Hasht mark in its system splash; older Android
+and iOS use a plain dark launch screen. No timed splash or native loading overlay
+holds back the remote web app's own loading screen.
 
 ## Architecture
 

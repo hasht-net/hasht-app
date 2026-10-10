@@ -40,8 +40,13 @@ alpha = MARK.getchannel("A")
 radius = max(hypot(x - (MARK.width - 1) / 2, y - (MARK.height - 1) / 2)
              for y in range(MARK.height) for x in range(MARK.width)
              if alpha.getpixel((x, y)))
-android_width = MARK.width * 32.5 / radius
+android_width = MARK.width * 31 / radius
 res = ROOT / "android/app/src/main/res"
+# Night-qualified legacy bitmaps otherwise outrank the default adaptive XML.
+night_adaptive = res / "mipmap-night-anydpi-v26"
+night_adaptive.mkdir(exist_ok=True)
+for name in ("ic_launcher.xml", "ic_launcher_round.xml"):
+    (night_adaptive / name).write_text((res / "mipmap-anydpi-v26" / name).read_text())
 for density, scale in {"mdpi": 1, "hdpi": 1.5, "xhdpi": 2,
                        "xxhdpi": 3, "xxxhdpi": 4}.items():
     target = res / f"mipmap-{density}"
