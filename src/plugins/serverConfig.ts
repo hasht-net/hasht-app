@@ -39,6 +39,14 @@ export interface ServerConfigPlugin {
   signOut(): Promise<void>;
   /** Back to the wizard without forgetting anything — a dead instance, or an explicit switch. */
   reset(): Promise<void>;
+  /**
+   * Where links that leave the instance open. `in-app` (the default) is a
+   * Custom Tab / Safari sheet over the app; `system` is the default browser.
+   */
+  getLinkMode(): Promise<{ mode: LinkMode }>;
+  setLinkMode(options: { mode: LinkMode }): Promise<void>;
 }
+
+export type LinkMode = 'in-app' | 'system';
 
 export const ServerConfig = registerPlugin<ServerConfigPlugin>('ServerConfig');

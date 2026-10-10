@@ -42,8 +42,9 @@ clears the active server — keeping it in the list — and returns to the wizar
 Two platform gestures remain, neither of them chrome:
 
 - **iOS** — left-edge swipe; the wizard stays in the webview's history.
-- **Android** — system back, which also clears the active server so the next
-  launch does not reload it.
+- **Android** — system back walks the webview's history and, at the bottom of
+  it, sends the app to the background like any other app. It never switches
+  server; that is `ServerConfig.reset()`.
 
 **Open gap:** until the frontend ships that control, a signed-out user on the
 wrong instance has only the edge swipe. Offer it from the signed-out screen as
@@ -52,6 +53,15 @@ well as from settings.
 `ServerConfig` is a small custom plugin (`ios/App/App/ServerConfigPlugin.swift`,
 `android/.../ServerConfigPlugin.java`) because Capacitor's `server.url` is
 static config and a self-hosted client needs it chosen at runtime.
+
+### Links to other sites
+
+Links that leave the instance's origin do not load in the chat webview (there
+would be no way back). They open in an in-app Custom Tab / Safari sheet by
+default, or in the default browser if the user picks `system`
+(`ServerConfig.getLinkMode` / `setLinkMode`; the frontend owns the setting UI,
+see `src/integration/hashtNative.ts`). Server redirects, e.g. through an
+instance's own SSO, still load in the webview.
 
 ### Where code runs
 
@@ -286,6 +296,8 @@ CI would find no scheme at all.
 `HASHT_KEYSTORE_PATH` is set, so a local `assembleRelease` still builds
 unsigned without the release secrets. `versionCode`/`versionName` come from
 `-PhashtVersionCode` / `-PhashtVersionName`, defaulting to `1` / `1.0`.
+`versionName` is the full tag without the `v` (`0.1.0-beta.3`) so the app can
+report it; Play only cares about `versionCode`. iOS must stay bare `X.Y.Z`.
 
 Play App Signing holds the real app key; the keystore above is the *upload*
 key.
@@ -329,7 +341,8 @@ Four traps, all invisible to a green build:
    compiles your file still says BUILD SUCCEEDED.
 4. **Without `server.allowNavigation`, the instance opens in Safari** — Capacitor
    treats any origin outside its allowlist as external. Set to `['*']` because
-   the instance is user-supplied; see the TODO in `capacitor.config.ts`.
+   the instance is user-supplied. Links to other origins are then intercepted
+   natively; see "Links to other sites".
 5. **Capacitor re-raises the webview across navigations.** A native overlay
    added in `viewDidLoad` is on top at launch and behind the page after the
    first navigation, so it must reclaim the top in `viewDidLayoutSubviews` —
