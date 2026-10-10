@@ -1,9 +1,8 @@
 name: "Release"
 
 # Ships the published release to both stores. One workflow, one job per
-# platform, so a single `github.run_number` is the build number everywhere —
-# split workflows would drift, and both stores reject a build number that goes
-# backwards.
+# platform. Both share one build number reserved from the same sequence used
+# by local builds, so manual Play uploads cannot collide with CI run numbers.
 #
 #   prerelease (v0.1.0-beta.3)  ->  TestFlight  +  Play internal track
 #   stable     (v0.1.0)         ->  App Store Connect  +  Play production
@@ -35,7 +34,7 @@ on:
 # One release at a time. Never cancel in flight — a half-uploaded store build
 # is worse than a slow one.
 concurrency:
-  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  group: release
   cancel-in-progress: false
 
 jobs:
@@ -46,12 +45,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      contents: read
+      contents: write
     outputs:
       tag: ${{ steps.resolve.outputs.tag }}
       version: ${{ steps.resolve.outputs.version }}
       display_version: ${{ steps.resolve.outputs.display_version }}
-      build: ${{ steps.resolve.outputs.build }}
+      build: ${{ steps.build.outputs.number }}
       sha: ${{ steps.resolve.outputs.sha }}
       prerelease: ${{ steps.resolve.outputs.prerelease }}
       ios: ${{ steps.resolve.outputs.ios }}
@@ -88,21 +87,35 @@ jobs:
             echo "tag=$tag"
             echo "version=$version"
             echo "display_version=$display_version"
-            # Monotonic across every run of this workflow, and shared by both
-            # platforms so a given build number means the same binary pair.
-            echo "build=${{ github.run_number }}"
             echo "sha=$(gh api "/repos/${{ github.repository }}/commits/$tag" -q .sha)"
             echo "prerelease=$prerelease"
             [ "$PLATFORMS" = "android" ] && echo "ios=false" || echo "ios=true"
             [ "$PLATFORMS" = "ios" ] && echo "android=false" || echo "android=true"
           } >> "$GITHUB_OUTPUT"
 
+      # Use the workflow's helper even when rebuilding an older release tag.
+      - name: "Checkout Release Tools"
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+
+      - name: "Reserve Build Number"
+        id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          number=$(python3 scripts/reserve-build-number.py \
+            --repo "$GITHUB_REPOSITORY" --sha "$TARGET_SHA")
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+
       - name: "Debug"
         run: |
           echo "tag=${{ steps.resolve.outputs.tag }}"
           echo "version=${{ steps.resolve.outputs.version }}"
           echo "display_version=${{ steps.resolve.outputs.display_version }}"
-          echo "build=${{ steps.resolve.outputs.build }}"
+          echo "build=${{ steps.build.outputs.number }}"
           echo "sha=${{ steps.resolve.outputs.sha }}"
           echo "prerelease=${{ steps.resolve.outputs.prerelease }}"
           echo "ios=${{ steps.resolve.outputs.ios }}"
