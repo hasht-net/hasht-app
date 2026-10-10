@@ -207,3 +207,41 @@ export async function endCallSession(): Promise<void> {
 export async function forgetInstance(): Promise<void> {
   await capacitor()?.Plugins?.ServerConfig?.reset();
 }
+
+export type LinkMode = 'in-app' | 'system';
+
+/**
+ * Links to other sites open outside the chat webview — in a sheet over the app
+ * (`in-app`, the default) or the default browser (`system`). Offer this in
+ * settings when `isNativeShell()`; null where the shell predates it.
+ */
+export async function getLinkMode(): Promise<LinkMode | null> {
+  try {
+    const result = (await capacitor()?.Plugins?.ServerConfig?.getLinkMode()) as
+      | { mode: LinkMode }
+      | undefined;
+    return result?.mode ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function setLinkMode(mode: LinkMode): Promise<void> {
+  await capacitor()?.Plugins?.ServerConfig?.setLinkMode({ mode });
+}
+
+/**
+ * The shell's own version (`2026.10.02-beta.0` on Android; iOS reports the
+ * bare store version), for About screens that would otherwise show only the
+ * server's. Null outside the shell.
+ */
+export async function nativeAppVersion(): Promise<{ version: string; build: string } | null> {
+  try {
+    const info = (await capacitor()?.Plugins?.App?.getInfo()) as
+      | { version?: string; build?: string }
+      | undefined;
+    return info?.version ? { version: info.version, build: info.build ?? '' } : null;
+  } catch {
+    return null;
+  }
+}

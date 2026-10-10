@@ -1,7 +1,10 @@
 package net.hasht.app;
 
+import android.webkit.WebView;
+
+import androidx.activity.OnBackPressedCallback;
+
 import com.getcapacitor.BridgeActivity;
-import com.getcapacitor.PluginHandle;
 
 public class MainActivity extends BridgeActivity {
     @Override
@@ -16,6 +19,25 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(NativeAuthPlugin.class);
         registerPlugin(NativePushPlugin.class);
         super.onCreate(savedInstanceState);
+        getBridge().setWebViewClient(new HashtWebViewClient(getBridge()));
+
+        // After super: the App plugin registers its own callback during
+        // onCreate, and the most recently added one runs first. Its handler
+        // swallows back when there is no history, which is what left users
+        // stuck on the picker.
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                WebView webView = getBridge().getWebView();
+                if (webView.canGoBack()) {
+                    webView.goBack();
+                } else {
+                    // Leave like any other app, but keep the process: finish()
+                    // would drop a live call's webview.
+                    moveTaskToBack(true);
+                }
+            }
+        });
     }
 
     /** Whether the app is on screen; pushes for the instance shown are skipped. */
@@ -35,15 +57,5 @@ public class MainActivity extends BridgeActivity {
     public void onStop() {
         super.onStop();
         visible = false;
-    }
-
-    @Override
-    public void onBackPressed() {
-        PluginHandle handle = getBridge().getPlugin("ServerConfig");
-        if (handle != null
-            && ((ServerConfigPlugin) handle.getInstance()).returnToWizardIfRemote()) {
-            return;
-        }
-        super.onBackPressed();
     }
 }

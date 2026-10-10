@@ -57,7 +57,7 @@ public class ServerConfigPlugin extends Plugin {
     private static final String KEY_SERVERS = "servers";
     private static final String KEY_ACTIVE = "activeServerId";
 
-    private static SharedPreferences prefs(Context context) {
+    static SharedPreferences prefs(Context context) {
         return context.getSharedPreferences(PREFS, 0);
     }
 
@@ -432,21 +432,28 @@ public class ServerConfigPlugin extends Plugin {
         call.resolve();
     }
 
-    /**
-     * System-back equivalent of iOS's escape affordance: backing out of an
-     * instance returns to the wizard rather than leaving the app, and forgets
-     * the active server so the next launch does not reload it. Returns false
-     * when there is no instance to back out of, so back behaves normally.
-     */
-    boolean returnToWizardIfRemote() {
-        if (activeId() == null) return false;
-        returnToWizard();
-        return true;
-    }
-
     private void returnToWizard() {
         setActiveId(null);
         restart();
+    }
+
+    /** Where links leaving the instance open; see LinkOpener. */
+    @PluginMethod
+    public void getLinkMode(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("mode", LinkOpener.mode(getContext()));
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void setLinkMode(PluginCall call) {
+        String mode = call.getString("mode");
+        if (!LinkOpener.IN_APP.equals(mode) && !LinkOpener.SYSTEM.equals(mode)) {
+            call.reject("mode must be \"in-app\" or \"system\"");
+            return;
+        }
+        LinkOpener.setMode(getContext(), mode);
+        call.resolve();
     }
 
     /** Rebuilds the bridge against the config the new active server implies. */
