@@ -1,6 +1,8 @@
 package net.hasht.app;
 
+import android.content.ActivityNotFoundException;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
@@ -423,6 +425,25 @@ public class ServerConfigPlugin extends Plugin {
     public void reset(PluginCall call) {
         returnToWizard();
         call.resolve();
+    }
+
+    /**
+     * allowNavigation '*' makes Capacitor load every link in the webview, which
+     * strands the user on a page with no way back. A link to any origin other
+     * than the active instance goes to the system browser instead.
+     */
+    @Override
+    public Boolean shouldOverrideLoad(Uri url) {
+        String scheme = url.getScheme();
+        if (!"http".equals(scheme) && !"https".equals(scheme)) return null;
+        String active = activeServerUrl(getContext());
+        if (active == null || originKey(Uri.parse(active)).equals(originKey(url))) return null;
+        try {
+            getActivity().startActivity(new Intent(Intent.ACTION_VIEW, url));
+        } catch (ActivityNotFoundException e) {
+            // No browser installed: nothing sensible to load it in.
+        }
+        return true;
     }
 
     /**

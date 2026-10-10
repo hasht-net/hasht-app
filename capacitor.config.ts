@@ -10,9 +10,8 @@ const config: CapacitorConfig = {
   server: {
     // The instance is arbitrary and user-supplied, so no fixed allowlist can
     // describe it. Without this Capacitor treats the configured server as
-    // "external" and punts it to Safari instead of loading it in-app.
-    // TODO: narrow to the active instance's host via a navigation policy in
-    // MainViewController, so stray links still open in the system browser.
+    // "external" and punts it to Safari instead of loading it in-app. Stray
+    // links are sent to the system browser by ServerConfig.shouldOverrideLoad.
     allowNavigation: ['*'],
   },
   ios: {

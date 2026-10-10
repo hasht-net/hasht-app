@@ -2,6 +2,7 @@ import Capacitor
 import Foundation
 import UIKit
 import UserNotifications
+import WebKit
 
 private struct ServerEntry: Codable {
     let id: String
@@ -58,6 +59,27 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     override public func load() {
         guard let active = servers.first(where: { $0.id == activeId }) else { return }
         load(active.url)
+    }
+
+    /// `allowNavigation: ['*']` makes Capacitor load every link in the webview,
+    /// which strands the user on a page with no way back. Links that open a new
+    /// window (target=_blank, including same-origin ones like an upload's
+    /// "open original") and tapped links to another origin go to the system
+    /// browser. Redirects the server itself issues are left alone.
+    override public func shouldOverrideLoad(_ navigationAction: WKNavigationAction) -> NSNumber? {
+        guard let active = activeServer, let activeURL = URL(string: active.url),
+              let url = navigationAction.request.url,
+              url.scheme == "http" || url.scheme == "https"
+        else { return nil }
+
+        let newWindow = navigationAction.targetFrame == nil
+        let tappedLink = navigationAction.navigationType == .linkActivated
+            && navigationAction.targetFrame?.isMainFrame == true
+        let crossOrigin = Self.originKey(url) != Self.originKey(activeURL)
+        guard newWindow || (tappedLink && crossOrigin) else { return nil }
+
+        UIApplication.shared.open(url)
+        return NSNumber(value: true)
     }
 
     /// Confirms an origin is a Hasht instance and reports its name.
