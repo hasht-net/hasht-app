@@ -2,6 +2,7 @@ package net.hasht.app;
 
 import android.net.Uri;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 
 import com.getcapacitor.Bridge;
@@ -39,6 +40,22 @@ class HashtWebViewClient extends BridgeWebViewClient {
     public void onPageFinished(WebView view, String url) {
         super.onPageFinished(view, url);
         view.evaluateJavascript(NO_TAP_HIGHLIGHT, null);
+    }
+
+    @Override
+    public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+        Uri url = request.getUrl();
+        String path = url.getPath();
+        if (path != null && path.startsWith(ShareTargetPlugin.PATH_PREFIX)
+            && "GET".equals(request.getMethod()) && isAppOrigin(url)) {
+            return ShareTargetPlugin.serve(url);
+        }
+        return super.shouldInterceptRequest(view, request);
+    }
+
+    private boolean isAppOrigin(Uri url) {
+        Uri app = Uri.parse(bridge.getAppUrl());
+        return ServerConfigPlugin.originKey(url).equals(ServerConfigPlugin.originKey(app));
     }
 
     @Override
