@@ -249,3 +249,39 @@ export async function nativeAppVersion(): Promise<{ version: string; build: stri
     return null;
   }
 }
+
+export interface NativeShare {
+  text: string | null;
+  files: File[];
+  skipped: number;
+}
+
+/**
+ * Content sent to the app from the system share sheet. Null when there is
+ * none or the shell predates `ShareTarget`. Call on load and on every
+ * `onNativeShare`; each share is returned once. Files are fetched from a
+ * same-origin path the shell serves only until this resolves.
+ */
+export async function takeNativeShare(): Promise<NativeShare | null> {
+  const plugin = capacitor()?.Plugins?.ShareTarget;
+  if (!plugin) return null;
+  const { share } = (await plugin.take()) as {
+    share: { token: string; text: string | null; skipped: number; files: { name: string; type: string; url: string }[] } | null;
+  };
+  if (!share) return null;
+  try {
+    const files = await Promise.all(share.files.map(async (f) => {
+      const response = await fetch(f.url);
+      if (!response.ok) throw new Error(`shared file ${response.status}`);
+      return new File([await response.blob()], f.name, { type: f.type });
+    }));
+    return { text: share.text, files, skipped: share.skipped };
+  } finally {
+    // By token: a share taken while this one was being read has its own files.
+    await plugin.release({ token: share.token });
+  }
+}
+
+export function onNativeShare(handler: () => void): void {
+  void capacitor()?.Plugins?.ShareTarget?.addListener('shareReceived', handler);
+}
