@@ -27,6 +27,9 @@ frontend from a user-configured instance.
 - `android/.../CallSessionPlugin.java`, `OngoingCallService.java` — Android-only;
   keeps the mic alive during a backgrounded call. See README, "Calls in the
   background".
+- `ShareTarget` — the system share sheet target. `src/plugins/shareTarget.ts`;
+  Android `ShareTargetPlugin` (copies shared streams to cache, served to the
+  page under `/_hasht_share_/<token>/` by `HashtWebViewClient`). iOS not yet.
 - `.github/workflows/draft.yaml` — rolling draft release on `main`, same as
   `hasht-chat`. `.github/workflows/release.yaml` — on publish, one job per
   platform sharing a single build number. `fastlane/` is the iOS half of that;
