@@ -264,7 +264,7 @@ jobs:
           releaseFiles: ${{ env.aab }}
           whatsNewDirectory: whatsNew
           releaseName: "${{ needs.meta.outputs.version }} (${{ needs.meta.outputs.build }})"
-          track: ${{ needs.meta.outputs.prerelease == 'true' && 'internal' || 'production' }}
+          tracks: ${{ needs.meta.outputs.prerelease == 'true' && 'internal' || 'production' }}
           status: ${{ needs.meta.outputs.prerelease == 'true' && 'completed' || 'draft' }}
 
       - name: "Write Job Summary"
