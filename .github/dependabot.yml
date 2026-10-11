@@ -23,6 +23,11 @@ updates:
           - minor
           - patch
 
+  - package-ecosystem: swift
+    directory: /ios/App/CapApp-SPM
+    schedule:
+      interval: weekly
+
   - package-ecosystem: bundler
     directory: /
     schedule:
