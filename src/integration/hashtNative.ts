@@ -266,7 +266,7 @@ export async function takeNativeShare(): Promise<NativeShare | null> {
   const plugin = capacitor()?.Plugins?.ShareTarget;
   if (!plugin) return null;
   const { share } = (await plugin.take()) as {
-    share: { text: string | null; skipped: number; files: { name: string; type: string; url: string }[] } | null;
+    share: { token: string; text: string | null; skipped: number; files: { name: string; type: string; url: string }[] } | null;
   };
   if (!share) return null;
   try {
@@ -277,7 +277,8 @@ export async function takeNativeShare(): Promise<NativeShare | null> {
     }));
     return { text: share.text, files, skipped: share.skipped };
   } finally {
-    await plugin.release();
+    // By token: a share taken while this one was being read has its own files.
+    await plugin.release({ token: share.token });
   }
 }
 

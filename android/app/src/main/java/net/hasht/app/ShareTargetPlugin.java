@@ -43,7 +43,8 @@ import java.util.concurrent.Future;
  * the page gets around to it. The page then fetches each file from its own
  * origin under {@link #PATH_PREFIX} and a random token, which
  * HashtWebViewClient answers from this registry, so a video never goes
- * through the bridge as base64. Only the share the page took is served.
+ * through the bridge as base64. Only shares the page took are served, each
+ * until the page releases it by token.
  *
  * The share goes to whichever instance is active; with none yet, it waits in
  * memory for the one the user picks.
@@ -63,7 +64,7 @@ public class ShareTargetPlugin extends Plugin {
 
     private static final Object lock = new Object();
     private static Future<Share> pending;
-    private static Share served;
+    private static final Map<String, Share> served = new HashMap<>();
 
     private static final class SharedFile {
         final String name;
@@ -101,7 +102,7 @@ public class ShareTargetPlugin extends Plugin {
         }
         // Left over from a share that was never sent before the process died.
         synchronized (lock) {
-            if (pending == null && served == null) deleteTree(new File(context.getCacheDir(), CACHE_DIR));
+            if (pending == null && served.isEmpty()) deleteTree(new File(context.getCacheDir(), CACHE_DIR));
         }
         capture(context, intent);
     }
@@ -133,22 +134,21 @@ public class ShareTargetPlugin extends Plugin {
                 return;
             }
             synchronized (lock) {
-                if (served != null) deleteTree(served.dir);
-                served = share;
+                served.put(share.token, share);
             }
             call.resolve(new JSObject().put("share", toJs(share)));
         });
     }
 
-    /** The page has the files; drop the copies. */
+    /** The page has this share's files; drop its copies and no other share's. */
     @PluginMethod
     public void release(PluginCall call) {
+        String token = call.getString("token");
+        Share share;
         synchronized (lock) {
-            if (served != null) {
-                deleteTree(served.dir);
-                served = null;
-            }
+            share = token == null ? null : served.remove(token);
         }
+        if (share != null) deleteTree(share.dir);
         call.resolve();
     }
 
@@ -158,15 +158,16 @@ public class ShareTargetPlugin extends Plugin {
         if (segments.size() != 3) return null;
         SharedFile file;
         synchronized (lock) {
-            if (served == null || !served.token.equals(segments.get(1))) return notFound();
+            Share share = served.get(segments.get(1));
+            if (share == null) return notFound();
             int index;
             try {
                 index = Integer.parseInt(segments.get(2));
             } catch (NumberFormatException e) {
                 return notFound();
             }
-            if (index < 0 || index >= served.files.size()) return notFound();
-            file = served.files.get(index);
+            if (index < 0 || index >= share.files.size()) return notFound();
+            file = share.files.get(index);
         }
         try {
             Map<String, String> headers = new HashMap<>();
@@ -345,6 +346,7 @@ public class ShareTargetPlugin extends Plugin {
             files.put(js);
         }
         JSObject js = new JSObject();
+        js.put("token", share.token);
         js.put("text", share.text);
         js.put("files", files);
         js.put("skipped", share.skipped);

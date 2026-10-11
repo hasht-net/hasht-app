@@ -9,6 +9,8 @@ export interface SharedFile {
 }
 
 export interface SharedContent {
+  /** Identifies this share to `release()`. */
+  token: string;
   text: string | null;
   files: SharedFile[];
   /** Items the shell couldn't read or that were over its limits. */
@@ -23,8 +25,8 @@ export interface SharedContent {
 export interface ShareTargetPlugin {
   /** The pending share, or null. Taking it clears it. */
   take(): Promise<{ share: SharedContent | null }>;
-  /** Drops the taken share's copied files once the page has read them. */
-  release(): Promise<void>;
+  /** Drops one taken share's copied files once the page has read them. */
+  release(options: { token: string }): Promise<void>;
   /** A share arrived while the app was running; call `take()`. */
   addListener(event: 'shareReceived', handler: () => void): Promise<{ remove: () => Promise<void> }>;
 }
