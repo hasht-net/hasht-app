@@ -458,5 +458,5 @@ Four traps, all invisible to a green build:
 
 ## License
 
-[MIT](LICENSE), copyright © 2026 Ralph Luaces. Third-party components retain
+[MIT](LICENSE), copyright © 2026 Hasht LLC. Third-party components retain
 their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
