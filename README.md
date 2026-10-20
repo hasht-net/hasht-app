@@ -322,6 +322,30 @@ certificates repo. Keep signing credentials and certificates outside this repo.
 
 ### iOS signing
 
+CI can use exported signing files directly from GitHub Secrets. Configure:
+
+| Secret | Contents |
+|---|---|
+| `IOS_DISTRIBUTION_P12` | Base64 Apple Distribution certificate **and private key** |
+| `IOS_DISTRIBUTION_PASSWORD` | Certificate export password |
+| `IOS_APP_PROFILE` | Base64 App Store Connect profile for `net.hasht.app` |
+| `IOS_EXTENSION_PROFILE` | Base64 profile for `net.hasht.app.NotificationService` |
+
+The app profile must enable production Push Notifications. Both profiles must
+include App Group `group.net.hasht.app` and use the distribution certificate.
+This mode reuses the Apple API/account secrets above and requires no match repo
+or SSH key. The workflow removes its temporary signing files after Fastlane.
+Published prereleases upload to TestFlight without submitting for review.
+
+For an initial branch test, manually run Release with an existing prerelease
+tag, platforms `ios`, and optional `ref` pointing to the setup branch. Version
+comes from the release tag; source comes from the branch. Source overrides are
+rejected for stable releases and Android builds. Leave `ref` blank for normal
+release rebuilds.
+
+If `IOS_DISTRIBUTION_P12` is absent, the existing match mode below is used.
+
+
 `fastlane match` in `readonly` mode: CI consumes the certificates repo and
 never writes to it. Bootstrap it once, locally:
 

@@ -38,9 +38,32 @@ platform :ios do
       in_house: false,
     )
 
-    # readonly: CI consumes the match repo, it never writes to it. Bootstrap is
-    # a one-time local `bundle exec fastlane match appstore` — see README.
-    match(type: "appstore", app_identifier: SIGNED_TARGETS.values, readonly: true, api_key: api_key)
+    if ENV["IOS_SIGNING_DIR"]
+      import_certificate(
+        certificate_path: File.join(ENV.fetch("IOS_SIGNING_DIR"), "distribution.p12"),
+        certificate_password: ENV.fetch("IOS_DISTRIBUTION_PASSWORD"),
+        keychain_name: ENV.fetch("MATCH_KEYCHAIN_NAME"),
+        keychain_password: ENV.fetch("MATCH_KEYCHAIN_PASSWORD", ""),
+      )
+      { APP_ID => "app.mobileprovision", NSE_ID => "extension.mobileprovision" }.each do |bundle_id, filename|
+        path = File.join(ENV.fetch("IOS_SIGNING_DIR"), filename)
+        profile = FastlaneCore::ProvisioningProfile.parse(path)
+        entitlements = profile.fetch("Entitlements")
+        UI.user_error!("Wrong signing team") unless profile.fetch("TeamIdentifier").include?(ENV.fetch("APPLE_TEAM_ID"))
+        UI.user_error!("Wrong profile for #{bundle_id}") unless entitlements.fetch("application-identifier") == "#{ENV.fetch('APPLE_TEAM_ID')}.#{bundle_id}"
+        UI.user_error!("Missing shared App Group") unless entitlements.fetch("com.apple.security.application-groups", []).include?("group.net.hasht.app")
+        UI.user_error!("Expired provisioning profile") unless profile.fetch("ExpirationDate").to_time > Time.now
+        UI.user_error!("Development profile supplied") if entitlements["get-task-allow"]
+        if bundle_id == APP_ID && entitlements["aps-environment"] != "production"
+          UI.user_error!("App profile must enable production push notifications")
+        end
+        install_provisioning_profile(path: path)
+        ENV["sigh_#{bundle_id}_appstore_profile-name"] = profile.fetch("Name")
+      end
+    else
+      # Existing match setups remain supported; CI never writes to their repo.
+      match(type: "appstore", app_identifier: SIGNED_TARGETS.values, readonly: true, api_key: api_key)
+    end
 
     # The Capacitor-generated project ships CODE_SIGN_STYLE = Automatic, which
     # ignores the profile match just installed. Pin each target to its match
@@ -83,9 +106,10 @@ platform :ios do
 
   desc "Build and upload to TestFlight (prerelease)"
   lane :beta do
-    prepare_signing
+    api_key = prepare_signing
     archive
     upload_to_testflight(
+      api_key: api_key,
       skip_submission: true,
       skip_waiting_for_build_processing: true,
     )

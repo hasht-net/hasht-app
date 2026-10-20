@@ -24,6 +24,10 @@ on:
         description: "Release tag to build (e.g. v0.1.0)"
         required: true
         type: string
+      ref:
+        description: "Optional source branch for an iOS-only prerelease test build"
+        required: false
+        type: string
       platforms:
         description: "Which platforms to ship"
         required: true
@@ -61,6 +65,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PLATFORMS: ${{ inputs.platforms || 'both' }}
+          SOURCE_REF: ${{ inputs.ref }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "release" ]; then
@@ -77,6 +82,13 @@ jobs:
             v[0-9]*) ;;
             *) echo "::error::Release tag '$tag' must look like vX.Y.Z"; exit 1 ;;
           esac
+          source="$tag"
+          if [ -n "$SOURCE_REF" ]; then
+            if [ "$prerelease" != true ] || [ "$PLATFORMS" != ios ]; then
+              echo '::error::Source override requires an iOS-only prerelease build'; exit 1
+            fi
+            source="$SOURCE_REF"
+          fi
           # Both stores want a bare X.Y.Z marketing version, so the -beta.N
           # suffix is dropped. The tag itself stays on the GitHub release.
           # Android's versionName is free-form and is what the app reports
@@ -87,7 +99,7 @@ jobs:
             echo "tag=$tag"
             echo "version=$version"
             echo "display_version=$display_version"
-            echo "sha=$(gh api "/repos/${{ github.repository }}/commits/$tag" -q .sha)"
+            echo "sha=$(gh api "/repos/${{ github.repository }}/commits/$source" -q .sha)"
             echo "prerelease=$prerelease"
             [ "$PLATFORMS" = "android" ] && echo "ios=false" || echo "ios=true"
             [ "$PLATFORMS" = "ios" ] && echo "android=false" || echo "android=true"
@@ -309,13 +321,32 @@ jobs:
         env:
           ASC_API_KEY: ${{ secrets.ASC_API_KEY }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          IOS_DISTRIBUTION_P12: ${{ secrets.IOS_DISTRIBUTION_P12 }}
+          IOS_DISTRIBUTION_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_PASSWORD }}
+          IOS_APP_PROFILE: ${{ secrets.IOS_APP_PROFILE }}
+          IOS_EXTENSION_PROFILE: ${{ secrets.IOS_EXTENSION_PROFILE }}
+          ASC_API_ID: ${{ secrets.ASC_API_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [ -n "$ASC_API_KEY" ] && [ -n "$MATCH_PASSWORD" ]; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          else
+          set -euo pipefail
+          if [ -z "$ASC_API_KEY" ]; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::ASC_API_KEY/MATCH_PASSWORD unset — skipping the iOS build"
+            echo "::notice::ASC_API_KEY unset — skipping the iOS build"
+            exit 0
           fi
+          required=(ASC_API_ID ASC_ISSUER_ID APPLE_TEAM_ID)
+          if [ -n "$IOS_DISTRIBUTION_P12" ]; then
+            required+=(IOS_DISTRIBUTION_PASSWORD IOS_APP_PROFILE IOS_EXTENSION_PROFILE)
+            echo "mode=profiles" >> "$GITHUB_OUTPUT"
+          else
+            required+=(MATCH_PASSWORD)
+            echo "mode=match" >> "$GITHUB_OUTPUT"
+          fi
+          for name in "${required[@]}"; do
+            [ -n "${!name}" ] || { echo "::error::Missing iOS signing configuration: $name"; exit 1; }
+          done
+          echo "ready=true" >> "$GITHUB_OUTPUT"
 
       - name: "Setup Node"
         if: ${{ steps.signing.outputs.ready == 'true' }}
@@ -347,10 +378,25 @@ jobs:
 
       # The match repo is private and cloned over SSH.
       - name: "Add SSH Key"
-        if: ${{ steps.signing.outputs.ready == 'true' }}
+        if: ${{ steps.signing.outputs.ready == 'true' && steps.signing.outputs.mode == 'match' }}
         uses: webfactory/ssh-agent@v0.10.0
         with:
           ssh-private-key: ${{ secrets.MATCH_SSH_KEY }}
+
+      - name: "Prepare Signing Files"
+        if: ${{ steps.signing.outputs.ready == 'true' && steps.signing.outputs.mode == 'profiles' }}
+        env:
+          IOS_DISTRIBUTION_P12: ${{ secrets.IOS_DISTRIBUTION_P12 }}
+          IOS_APP_PROFILE: ${{ secrets.IOS_APP_PROFILE }}
+          IOS_EXTENSION_PROFILE: ${{ secrets.IOS_EXTENSION_PROFILE }}
+        run: |
+          set -euo pipefail
+          umask 077
+          signing_dir=$(mktemp -d "$RUNNER_TEMP/hasht-signing.XXXXXX")
+          echo "IOS_SIGNING_DIR=$signing_dir" >> "$GITHUB_ENV"
+          printf '%s' "$IOS_DISTRIBUTION_P12" | base64 --decode > "$signing_dir/distribution.p12"
+          printf '%s' "$IOS_APP_PROFILE" | base64 --decode > "$signing_dir/app.mobileprovision"
+          printf '%s' "$IOS_EXTENSION_PROFILE" | base64 --decode > "$signing_dir/extension.mobileprovision"
 
       - name: "Fastlane ${{ needs.meta.outputs.prerelease == 'true' && 'beta' || 'release' }}"
         if: ${{ steps.signing.outputs.ready == 'true' }}
@@ -358,6 +404,7 @@ jobs:
           bundle exec fastlane ${{ needs.meta.outputs.prerelease == 'true' && 'beta' || 'release' }}
         env:
           CI: true
+          IOS_DISTRIBUTION_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           ASC_API_ID: ${{ secrets.ASC_API_ID }}
@@ -368,6 +415,10 @@ jobs:
           VERSION_NUMBER: ${{ needs.meta.outputs.version }}
           BUILD_NUMBER: ${{ needs.meta.outputs.build }}
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: 120
+
+      - name: "Remove Signing Files"
+        if: ${{ always() && env.IOS_SIGNING_DIR != '' }}
+        run: rm -rf "$IOS_SIGNING_DIR"
 
       - name: "Upload Artifacts"
         if: ${{ steps.signing.outputs.ready == 'true' }}
