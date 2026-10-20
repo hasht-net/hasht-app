@@ -359,6 +359,7 @@ jobs:
         if: ${{ steps.signing.outputs.ready == 'true' }}
         uses: ruby/setup-ruby@v1
         with:
+          ruby-version: "3.4"
           bundler-cache: true
 
       - name: "Select Xcode"
