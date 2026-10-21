@@ -115,6 +115,8 @@ func run() async throws {
     defer { api.cancel() }
     let destinations = try await api.destinations()
     try require(destinations.map(\.id) == ["dm", "text"], "permission, voice, or disabled-agent filtering failed")
+    try require(destinations[0].kind == .directMessage && destinations[0].subtitle == "alice", "DM identity metadata missing")
+    try require(destinations[1].kind == .channel, "channel filter metadata missing")
     try require(destinations[0].name == "Alice" && destinations[1].detail == "Community", "destination labels failed")
     let id = try await api.upload(ShareFile(url: source, name: "sample.txt", type: "text/plain"), channel: "text", directory: directory)
     try require(id == "attachment", "upload ID missing")
