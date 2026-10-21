@@ -325,6 +325,7 @@ jobs:
           IOS_DISTRIBUTION_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_PASSWORD }}
           IOS_APP_PROFILE: ${{ secrets.IOS_APP_PROFILE }}
           IOS_EXTENSION_PROFILE: ${{ secrets.IOS_EXTENSION_PROFILE }}
+          IOS_SHARE_PROFILE: ${{ secrets.IOS_SHARE_PROFILE }}
           ASC_API_ID: ${{ secrets.ASC_API_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -337,7 +338,7 @@ jobs:
           fi
           required=(ASC_API_ID ASC_ISSUER_ID APPLE_TEAM_ID)
           if [ -n "$IOS_DISTRIBUTION_P12" ]; then
-            required+=(IOS_DISTRIBUTION_PASSWORD IOS_APP_PROFILE IOS_EXTENSION_PROFILE)
+            required+=(IOS_DISTRIBUTION_PASSWORD IOS_APP_PROFILE IOS_EXTENSION_PROFILE IOS_SHARE_PROFILE)
             echo "mode=profiles" >> "$GITHUB_OUTPUT"
           else
             required+=(MATCH_PASSWORD)
@@ -390,6 +391,7 @@ jobs:
           IOS_DISTRIBUTION_P12: ${{ secrets.IOS_DISTRIBUTION_P12 }}
           IOS_APP_PROFILE: ${{ secrets.IOS_APP_PROFILE }}
           IOS_EXTENSION_PROFILE: ${{ secrets.IOS_EXTENSION_PROFILE }}
+          IOS_SHARE_PROFILE: ${{ secrets.IOS_SHARE_PROFILE }}
         run: |
           set -euo pipefail
           umask 077
@@ -398,6 +400,7 @@ jobs:
           printf '%s' "$IOS_DISTRIBUTION_P12" | base64 --decode > "$signing_dir/distribution.p12"
           printf '%s' "$IOS_APP_PROFILE" | base64 --decode > "$signing_dir/app.mobileprovision"
           printf '%s' "$IOS_EXTENSION_PROFILE" | base64 --decode > "$signing_dir/extension.mobileprovision"
+          printf '%s' "$IOS_SHARE_PROFILE" | base64 --decode > "$signing_dir/share.mobileprovision"
 
       - name: "Fastlane ${{ needs.meta.outputs.prerelease == 'true' && 'beta' || 'release' }}"
         if: ${{ steps.signing.outputs.ready == 'true' }}

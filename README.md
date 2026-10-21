@@ -93,8 +93,8 @@ instance's own SSO, still load in the webview.
 
 ### Where code runs
 
-Only the picker runs from this repo's assets. Everything after it is the Vue
-app served by the instance — so **native integration code lives in the chat
+The main app loads only the picker from this repo's web assets. Everything
+after it is the Vue app served by the instance — so **native integration code lives in the chat
 frontend**, not here. `src/integration/hashtNative.ts` is the reference
 implementation of that contract, kept in this repo so the app and the API it
 depends on version together.
@@ -330,8 +330,9 @@ CI can use exported signing files directly from GitHub Secrets. Configure:
 | `IOS_DISTRIBUTION_PASSWORD` | Certificate export password |
 | `IOS_APP_PROFILE` | Base64 App Store Connect profile for `net.hasht.app` |
 | `IOS_EXTENSION_PROFILE` | Base64 profile for `net.hasht.app.NotificationService` |
+| `IOS_SHARE_PROFILE` | Base64 profile for `net.hasht.app.ShareExtension` |
 
-The app profile must enable production Push Notifications. Both profiles must
+The app profile must enable production Push Notifications. All three profiles must
 include App Group `group.net.hasht.app` and use the distribution certificate.
 This mode reuses the Apple API/account secrets above and requires no match repo
 or SSH key. The workflow removes its temporary signing files after Fastlane.
@@ -357,10 +358,11 @@ MATCH_URL=git@github.com:YOUR_ORG/YOUR_PRIVATE_CERTIFICATES_REPO.git \
 
 The Capacitor-generated project ships `CODE_SIGN_STYLE = Automatic`, which
 ignores a match profile; `prepare_signing` in `fastlane/Fastfile` pins each
-target to manual signing for the run. There are two: the app
-(`net.hasht.app`) and its Notification Service Extension
-(`net.hasht.app.NotificationService`), each with its own App ID and
-`appstore` profile in the match repo. Both App IDs need the App Group
+target to manual signing for the run. There are three: the app
+(`net.hasht.app`), Notification Service Extension
+(`net.hasht.app.NotificationService`), and Share Extension
+(`net.hasht.app.ShareExtension`), each with its own App ID and
+`appstore` profile in the match repo. All three App IDs need the App Group
 `group.net.hasht.app`; the app's also needs Push Notifications. Re-run
 `bundle exec fastlane match appstore` locally after creating the extension's
 App ID, so the match repo holds its profile. Versions are passed as `xcargs` build
@@ -484,3 +486,40 @@ Four traps, all invisible to a green build:
 
 [MIT](LICENSE), copyright © 2026 Hasht LLC. Third-party components retain
 their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+
+### Sharing from other apps on iOS
+
+Choose **Hasht** in the iOS share sheet, search your existing DMs or writable
+text channels, select a destination, and tap **Send**. You can edit the shared
+text before sending. Photos, videos, audio, documents, links, and text are
+accepted, with up to 10 files totaling 1 GB; the instance's upload limits and
+permissions still apply. Unreadable or oversized items stop the share with an
+error instead of silently sending only part of it. Keep the sheet open until
+sending completes. Cancel dismisses it without sending a new message (a send
+already received by the server cannot be recalled).
+
+The extension uses the active instance and account from the last time the app
+was open. Open the updated app once before sharing so it can synchronize the
+session; sign in there again if the session expires. To use another instance,
+switch instances in Hasht first. New DMs are started in the app.
+
+`ShareSessionSync` observes the frontend's `chat_auth` storage contract on the
+active instance's main frame. It copies only the session token and username to
+the App Group Keychain, accessible while the device is unlocked. Signing out,
+removing the active instance, switching instances, or returning to the instance
+picker clears this copy. The extension checks the session before sending and
+refuses HTTP redirects on authenticated requests.
+
+The share sheet is a native UIKit extension using the same `/api/me/channels`,
+`/api/dms`, attachment upload, and message APIs as the remote frontend. This is
+the shell's second UI, alongside the instance picker; it does not bundle the
+chat frontend. Files and multipart upload bodies are staged in the extension's
+private temporary directory and streamed in chunks. Retries retain completed
+uploads and use a stable message client ID to avoid duplicate messages after
+an ambiguous response. Local copies are removed on completion or cancellation.
+
+For release builds, register `net.hasht.app.ShareExtension` with App Group
+`group.net.hasht.app`, then provide `IOS_SHARE_PROFILE` (exported-profile mode)
+or regenerate the match profiles. The App scheme builds and embeds both
+extensions, and all three targets receive the same release version/build.

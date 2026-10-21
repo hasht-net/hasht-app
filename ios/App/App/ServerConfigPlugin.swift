@@ -132,6 +132,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     /// call `NativePush.unregister` doesn't leave the next user's phone
     /// receiving the last one's messages.
     @objc func signOut(_ call: CAPPluginCall) {
+        ShareSession.save(nil)
         if let push = bridge?.plugin(withName: "NativePush") as? NativePushPlugin {
             Task { @MainActor in
                 if let url = self.bridge?.webView?.url, ["https", "http"].contains(url.scheme) {
@@ -226,6 +227,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         servers = servers.filter { $0.id != id }
         if activeId == id {
+            ShareSession.save(nil)
             activeId = nil
         }
         call.resolve()
@@ -301,6 +303,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     /// The frontend drives this from its own UI — the shell deliberately shows
     /// no server-switching control of its own.
     func returnToWizard() {
+        ShareSession.save(nil)
         activeId = nil
         DispatchQueue.main.async { [weak self] in
             guard let local = self?.bridge?.config.serverURL else { return }
@@ -309,6 +312,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func load(_ raw: String) {
+        ShareSession.save(nil)
         DispatchQueue.main.async { [weak self] in
             guard let url = URL(string: raw), let webView = self?.bridge?.webView else { return }
             webView.load(URLRequest(url: url))

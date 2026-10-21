@@ -2,5 +2,5 @@
 git_url(ENV["MATCH_URL"])
 storage_mode("git")
 type("appstore")
-# The Notification Service Extension is its own App ID with its own profile.
-app_identifier(["net.hasht.app", "net.hasht.app.NotificationService"])
+# Each extension has its own App ID and provisioning profile.
+app_identifier(["net.hasht.app", "net.hasht.app.NotificationService", "net.hasht.app.ShareExtension"])

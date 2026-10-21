@@ -15,9 +15,10 @@ default_platform(:ios)
 
 APP_ID = "net.hasht.app"
 NSE_ID = "net.hasht.app.NotificationService"
+SHARE_ID = "net.hasht.app.ShareExtension"
 # Target => bundle id. The extension is signed with its own profile, and an
 # archive with an unsigned or mis-signed extension fails at upload.
-SIGNED_TARGETS = { "App" => APP_ID, "NotificationService" => NSE_ID }.freeze
+SIGNED_TARGETS = { "App" => APP_ID, "NotificationService" => NSE_ID, "ShareExtension" => SHARE_ID }.freeze
 XCODEPROJ = "ios/App/App.xcodeproj"
 OUTPUT_DIR = "build"
 
@@ -45,7 +46,7 @@ platform :ios do
         keychain_name: ENV.fetch("MATCH_KEYCHAIN_NAME"),
         keychain_password: ENV.fetch("MATCH_KEYCHAIN_PASSWORD", ""),
       )
-      { APP_ID => "app.mobileprovision", NSE_ID => "extension.mobileprovision" }.each do |bundle_id, filename|
+      { APP_ID => "app.mobileprovision", NSE_ID => "extension.mobileprovision", SHARE_ID => "share.mobileprovision" }.each do |bundle_id, filename|
         path = File.join(ENV.fetch("IOS_SIGNING_DIR"), filename)
         profile = FastlaneCore::ProvisioningProfile.parse(path)
         entitlements = profile.fetch("Entitlements")

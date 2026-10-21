@@ -6,7 +6,8 @@ frontend from a user-configured instance.
 ## Layout
 
 - `index.html`, `src/bootstrap.ts`, `src/bootstrap.css` — the instance picker.
-  The **only** UI this repo ships; everything after connecting is the remote
+  The main app UI; the iOS Share Extension also ships a native destination
+  picker. Everything after connecting in the main app is the remote
   Vue app.
 - `src/plugins/serverConfig.ts`, `src/plugins/nativeAuth.ts` — TS interfaces
   for the custom `ServerConfig` and `NativeAuth` plugins.
@@ -29,7 +30,10 @@ frontend from a user-configured instance.
   background".
 - `ShareTarget` — the system share sheet target. `src/plugins/shareTarget.ts`;
   Android `ShareTargetPlugin` (copies shared streams to cache, served to the
-  page under `/_hasht_share_/<token>/` by `HashtWebViewClient`). iOS not yet.
+  page under `/_hasht_share_/<token>/` by `HashtWebViewClient`). iOS uses
+  `ShareExtension/` for a native DM/channel picker and direct uploads, with
+  `Shared/ShareSession.swift` in App and ShareExtension and
+  `App/ShareSessionSync.swift` to mirror the active session into the Keychain.
 - `.github/workflows/draft.yaml` — rolling draft release on `main`, same as
   `hasht-chat`. `.github/workflows/release.yaml` — on publish, one job per
   platform sharing a single build number. `fastlane/` is the iOS half of that;
@@ -66,6 +70,7 @@ frontend from a user-configured instance.
 npx tsc --noEmit
 npm run build
 scripts/test-webpush-ios.sh
+scripts/test-share-ios.sh
 cd android && ./gradlew :app:compileDebugJavaWithJavac :app:testDebugUnitTest
 cd ios/App && xcodebuild -scheme App -destination 'generic/platform=iOS' \
   -configuration Debug CODE_SIGNING_ALLOWED=NO build
