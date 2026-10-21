@@ -13,7 +13,7 @@ final class ShareSessionSync: NSObject, WKScriptMessageHandler {
         controller.addUserScript(WKUserScript(source: """
         (() => {
           const publish = () => {
-            try { window.webkit.messageHandlers.hashtShareSession.postMessage(localStorage.getItem('chat_auth') || ''); } catch (_) {}
+            try { window.webkit.messageHandlers.hashtShareSession.postMessage({id: window.__hashtAccountID, auth: localStorage.getItem('chat_auth') || ''}); } catch (_) {}
           };
           for (const method of ['setItem', 'removeItem', 'clear']) {
             const original = Storage.prototype[method];
@@ -37,7 +37,8 @@ final class ShareSessionSync: NSObject, WKScriptMessageHandler {
               ServerConfigPlugin.originKey(current) == ServerConfigPlugin.originKey(activeURL),
               let frameURL = message.frameInfo.request.url,
               ServerConfigPlugin.originKey(frameURL) == ServerConfigPlugin.originKey(activeURL),
-              let raw = message.body as? String else { return }
+              let body = message.body as? [String: Any], body["id"] as? String == active.id,
+              let raw = body["auth"] as? String else { return }
         guard let data = raw.data(using: .utf8),
               let auth = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let token = auth["token"] as? String, !token.isEmpty,

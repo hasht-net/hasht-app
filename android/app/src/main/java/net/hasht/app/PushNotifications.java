@@ -91,7 +91,7 @@ final class PushNotifications {
         for (PushStore.Registration reg : PushStore.load(context)) {
             try {
                 byte[] plain = WebPushCrypto.decrypt(body, reg.key(), reg.publicKey, reg.auth);
-                return new Message(reg.origin, reg.id, new JSONObject(new String(plain, StandardCharsets.UTF_8)));
+                return new Message(reg.scope(), reg.id, new JSONObject(new String(plain, StandardCharsets.UTF_8)));
             } catch (Exception wrongKey) {
                 // Next instance.
             }
@@ -103,7 +103,7 @@ final class PushNotifications {
     static synchronized void receive(Context context, Message message) {
         boolean registered = false;
         for (PushStore.Registration reg : PushStore.load(context)) {
-            if (reg.origin.equals(message.origin) && reg.id.equals(message.registrationId)) registered = true;
+            if (reg.scope().equals(message.origin) && reg.id.equals(message.registrationId)) registered = true;
         }
         if (!registered) return;
         PushOrder.State state = state(context);
@@ -127,7 +127,7 @@ final class PushNotifications {
 
     private static void show(Context context, Message message) {
         // Mirrors the web service worker: the page on screen already showed it.
-        if (MainActivity.isVisible() && message.origin.equals(NativePushPlugin.activeOrigin(context))) return;
+        if (MainActivity.isVisible() && message.origin.equals(NativePushPlugin.activeAccountKey(context))) return;
 
         ensureChannel(context);
         Intent tap = new Intent(context, MainActivity.class)
@@ -196,7 +196,7 @@ final class PushNotifications {
 
     static synchronized void overflow(Context context) {
         List<String> origins = new ArrayList<>();
-        for (PushStore.Registration reg : PushStore.load(context)) origins.add(reg.origin);
+        for (PushStore.Registration reg : PushStore.load(context)) origins.add(reg.scope());
         state(context).overflow(origins, System.currentTimeMillis());
         if (!save(context)) return;
         for (String origin : origins) {
@@ -227,7 +227,7 @@ final class PushNotifications {
         } catch (Exception corrupt) {
             orderState = new PushOrder.State();
             List<String> origins = new ArrayList<>();
-            for (PushStore.Registration reg : PushStore.load(context)) origins.add(reg.origin);
+            for (PushStore.Registration reg : PushStore.load(context)) origins.add(reg.scope());
             orderState.overflow(origins, System.currentTimeMillis());
         }
         return orderState;

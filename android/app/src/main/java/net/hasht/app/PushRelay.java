@@ -38,7 +38,7 @@ final class PushRelay {
      * its token died) a new one replaces it and the page re-subscribes with
      * the new endpoint.
      */
-    static synchronized PushStore.Registration register(Context context, String origin, String relay, String token)
+    static synchronized PushStore.Registration register(Context context, String origin, String relay, String token, String backendOrigin)
         throws Exception {
         String base = relay.endsWith("/") ? relay.substring(0, relay.length() - 1) : relay;
         PushStore.Registration existing = null;
@@ -47,7 +47,7 @@ final class PushRelay {
             generation = generations.getOrDefault(origin, 0L) + 1;
             generations.put(origin, generation);
             for (PushStore.Registration reg : PushStore.load(context)) {
-                if (reg.origin.equals(origin)) { existing = reg; break; }
+                if (reg.scope().equals(origin)) { existing = reg; break; }
             }
         }
         if (existing != null) {
@@ -73,15 +73,16 @@ final class PushRelay {
         byte[] auth = new byte[16];
         new SecureRandom().nextBytes(auth);
         PushStore.Registration reg = new PushStore.Registration(
-            origin, base, r.body.getString("id"), r.body.getString("endpoint"),
+            backendOrigin, base, r.body.getString("id"), r.body.getString("endpoint"),
             keys.getPrivate().getEncoded(), WebPushCrypto.encodePublic((ECPublicKey) keys.getPublic()), auth);
+        reg.accountKey = origin.equals(backendOrigin) ? null : origin;
         boolean cancelled;
         synchronized (storageLock) {
             cancelled = generations.getOrDefault(origin, 0L) != generation;
             if (!cancelled) {
                 // Other instances may have registered while the network was busy.
                 List<PushStore.Registration> regs = PushStore.load(context);
-                regs.removeIf(saved -> saved.origin.equals(origin));
+                regs.removeIf(saved -> saved.scope().equals(origin));
                 regs.add(reg);
                 PushStore.save(context, regs);
             }
@@ -106,7 +107,7 @@ final class PushRelay {
             List<PushStore.Registration> regs = PushStore.load(context);
             List<PushStore.Registration> gone = new java.util.ArrayList<>();
             for (int i = regs.size() - 1; i >= 0; i--) {
-                if (regs.get(i).origin.equals(origin)) gone.add(regs.remove(i));
+                if (regs.get(i).scope().equals(origin)) gone.add(regs.remove(i));
             }
             PushStore.save(context, regs);
             return gone;

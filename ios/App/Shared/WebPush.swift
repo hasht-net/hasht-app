@@ -17,6 +17,8 @@ struct PushRegistration: Codable, Equatable {
     /// P-256 private key, raw representation.
     let privateKey: Data
     let auth: Data
+    var accountKey: String? = nil
+    var key: String { accountKey ?? origin }
 
     var publicKey: Data? {
         (try? P256.KeyAgreement.PrivateKey(rawRepresentation: privateKey))?.publicKey.x963Representation
@@ -84,6 +86,8 @@ struct PushMessage {
     /// `message`, `update` or `remove`. Older backends send none: a message.
     let kind: String
     let ids: [String]
+    var accountKey: String? = nil
+    var key: String { accountKey ?? origin }
 
     var absoluteURL: String? {
         path.map { $0.hasPrefix("/") ? origin + $0 : $0 }
@@ -104,14 +108,14 @@ struct PushMessage {
                 path: json["url"] as? String,
                 tag: json["tag"] as? String,
                 kind: json["kind"] as? String ?? "message",
-                ids: (json["ids"] as? [Any])?.map { "\($0)" } ?? [])
+                ids: (json["ids"] as? [Any])?.map { "\($0)" } ?? [], accountKey: reg.accountKey)
         }
         return nil
     }
 
     /// What tapping or withdrawing the notification needs later.
     var userInfo: [String: Any] {
-        var info: [String: Any] = ["origin": origin, "kind": kind, "ids": ids]
+        var info: [String: Any] = ["origin": origin, "accountKey": key, "kind": kind, "ids": ids]
         if let url = absoluteURL { info["url"] = url }
         if let tag = tag { info["tag"] = tag }
         return info

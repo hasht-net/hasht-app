@@ -8,6 +8,30 @@ import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
     @Override
+    protected void load() {
+        android.webkit.WebView webView = findViewById(com.getcapacitor.android.R.id.webview);
+        org.json.JSONObject entry = ServerConfigPlugin.activeServer(this);
+        if (entry != null) webView.addJavascriptInterface(new AccountContext(entry), "HashtAccount");
+        super.load();
+    }
+
+    public static final class AccountContext {
+        private final String origin;
+        private final String id;
+        private final String storageKey;
+
+        AccountContext(org.json.JSONObject entry) {
+            origin = ServerConfigPlugin.originKey(android.net.Uri.parse(entry.optString("url")));
+            id = entry.optString("id");
+            storageKey = entry.optBoolean("legacySession") ? "chat_auth" : "hasht.account." + id + ".auth";
+        }
+
+        @android.webkit.JavascriptInterface public String getOrigin() { return origin; }
+        @android.webkit.JavascriptInterface public String getAccountID() { return id; }
+        @android.webkit.JavascriptInterface public String getStorageKey() { return storageKey; }
+    }
+
+    @Override
     public void onCreate(android.os.Bundle savedInstanceState) {
         // Before super: BridgeActivity builds the bridge from `config` during
         // onCreate, and the active server has to be in it by then for Capacitor

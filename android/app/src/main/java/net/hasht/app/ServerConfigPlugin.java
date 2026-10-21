@@ -48,7 +48,7 @@ import java.util.UUID;
  * the config is read once, at bridge construction.
  *
  * Mirrors hasht-desktop's serverStore.ts. Holds only which servers the user
- * added — never credentials, which stay in each origin's own cookie jar.
+ * added. Sign-in storage and push registrations are scoped to each entry.
  */
 @CapacitorPlugin(name = "ServerConfig")
 public class ServerConfigPlugin extends Plugin {
@@ -65,12 +65,46 @@ public class ServerConfigPlugin extends Plugin {
         return prefs(getContext());
     }
 
-    private JSONArray servers() {
+    static JSONArray storedServers(Context context) {
         try {
-            return new JSONArray(prefs().getString(KEY_SERVERS, "[]"));
+            JSONArray entries = new JSONArray(prefs(context).getString(KEY_SERVERS, "[]"));
+            java.util.Set<String> claimed = new java.util.HashSet<>();
+            boolean changed = false;
+            for (int i = 0; i < entries.length(); i++) {
+                JSONObject entry = entries.getJSONObject(i);
+                String origin = originKey(Uri.parse(entry.getString("url")));
+                if (!entry.has("legacySession")) {
+                    entry.put("legacySession", claimed.add(origin));
+                    changed = true;
+                } else if (entry.optBoolean("legacySession")) {
+                    claimed.add(origin);
+                }
+            }
+            if (changed) prefs(context).edit().putString(KEY_SERVERS, entries.toString()).apply();
+            return entries;
         } catch (JSONException e) {
             return new JSONArray();
         }
+    }
+
+    private JSONArray servers() { return storedServers(getContext()); }
+
+    @Override
+    public void load() {
+        bridge.injectScriptBeforeLoad("native/account-session.js");
+    }
+
+    static String pushKey(JSONObject entry) {
+        return entry.optBoolean("legacySession") ? originKey(Uri.parse(entry.optString("url"))) : entry.optString("id");
+    }
+
+    static String serverIdForPushKey(Context context, String key) {
+        JSONArray entries = storedServers(context);
+        for (int i = 0; i < entries.length(); i++) {
+            JSONObject entry = entries.optJSONObject(i);
+            if (entry != null && key.equals(pushKey(entry))) return entry.optString("id");
+        }
+        return null;
     }
 
     private void saveServers(JSONArray servers) {
@@ -156,7 +190,7 @@ public class ServerConfigPlugin extends Plugin {
         String id = prefs.getString(KEY_ACTIVE, null);
         if (id == null) return null;
         try {
-            JSONArray all = new JSONArray(prefs.getString(KEY_SERVERS, "[]"));
+            JSONArray all = storedServers(context);
             for (int i = 0; i < all.length(); i++) {
                 JSONObject entry = all.getJSONObject(i);
                 if (id.equals(entry.getString("id"))) return entry;
@@ -167,30 +201,15 @@ public class ServerConfigPlugin extends Plugin {
         return null;
     }
 
-    /** Compared by origin rather than string, so a trailing slash still matches. */
-    static String serverIdForOrigin(Context context, Uri origin) {
-        try {
-            JSONArray all = new JSONArray(prefs(context).getString(KEY_SERVERS, "[]"));
-            for (int i = 0; i < all.length(); i++) {
-                JSONObject entry = all.getJSONObject(i);
-                if (originKey(Uri.parse(entry.getString("url"))).equals(originKey(origin))) {
-                    return entry.getString("id");
-                }
-            }
-        } catch (JSONException e) {
-            // Corrupt store: treat as not added.
-        }
-        return null;
-    }
-
     /** Adds and activates; the caller recreates the activity to load it. */
     static String addAndActivate(Context context, String url, String name) throws JSONException {
         SharedPreferences prefs = prefs(context);
-        JSONArray all = new JSONArray(prefs.getString(KEY_SERVERS, "[]"));
+        JSONArray all = storedServers(context);
         JSONObject entry = new JSONObject();
         entry.put("id", UUID.randomUUID().toString());
         entry.put("url", url);
         entry.put("name", name);
+        entry.put("legacySession", false);
         all.put(entry);
         prefs.edit()
             .putString(KEY_SERVERS, all.toString())
@@ -283,7 +302,7 @@ public class ServerConfigPlugin extends Plugin {
      */
     @PluginMethod
     public void signOut(PluginCall call) {
-        String origin = NativePushPlugin.activeOrigin(getContext());
+        String origin = NativePushPlugin.activeAccountKey(getContext());
         try {
             if (origin != null) NativePushPlugin.unregister(getContext(), origin);
             call.resolve();
@@ -317,6 +336,7 @@ public class ServerConfigPlugin extends Plugin {
             entry.put("id", UUID.randomUUID().toString());
             entry.put("url", url);
             entry.put("name", name.trim());
+            entry.put("legacySession", false);
 
             JSONArray all = servers();
             all.put(entry);

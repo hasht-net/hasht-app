@@ -13,7 +13,7 @@ export interface ServerEntry {
  * Capacitor's `server.url` is static config, so a user-chosen instance can
  * only be applied natively. Mirrors `hasht-desktop`'s `serverStore.ts` so the
  * two shells behave the same; this holds only "which servers has the user
- * added" — never credentials, which stay in each origin's own cookie jar.
+ * added". Each entry has separate sign-in storage and push registration.
  */
 export interface ServerConfigPlugin {
   /**
@@ -25,7 +25,7 @@ export interface ServerConfigPlugin {
    */
   probe(options: { url: string }): Promise<{ name: string }>;
   list(): Promise<{ servers: ServerEntry[]; activeId: string | null }>;
-  /** Adds, makes active, and loads it. */
+  /** Adds a fresh account entry, makes it active, and loads it. Duplicate URLs are allowed. */
   add(options: { url: string; name?: string }): Promise<{ server: ServerEntry }>;
   /** Switches to an already-added server and loads it. */
   connect(options: { id: string }): Promise<void>;

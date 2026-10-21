@@ -190,19 +190,13 @@ public class NativeAuthPlugin extends Plugin {
         });
     }
 
-    /** Finds or adds the server, parks the auth for it, then loads it. */
+    /** A browser handoff creates an account without replacing a saved one. */
     private void adopt(JSObject auth, Uri origin) {
         new Thread(() -> {
             try {
-                String id = ServerConfigPlugin.serverIdForOrigin(getContext(), origin);
-                if (id == null) {
-                    String name = ServerConfigPlugin.fetchName(origin.toString());
-                    id = ServerConfigPlugin.addAndActivate(
-                        getContext(), origin.toString(), name != null ? name : origin.getHost());
-                } else {
-                    ServerConfigPlugin.activate(getContext(), id);
-                }
-                final String serverId = id;
+                String name = ServerConfigPlugin.fetchName(origin.toString());
+                final String serverId = ServerConfigPlugin.addAndActivate(
+                    getContext(), origin.toString(), name != null ? name : origin.getHost());
                 main.post(() -> {
                     pendingAuth.put(serverId, auth);
                     getActivity().recreate();
