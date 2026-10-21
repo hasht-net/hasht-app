@@ -15,6 +15,8 @@ import { registerPlugin } from '@capacitor/core';
  * `src/integration/hashtNative.ts`.
  */
 export interface NativePushPlugin {
+  /** Opens this app’s notification settings in the system Settings app. */
+  openSettings(): Promise<void>;
   /**
    * Asks for notification permission, then registers this instance with the
    * relay (or refreshes its existing registration). Rejects with code

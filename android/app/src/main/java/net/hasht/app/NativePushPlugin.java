@@ -3,9 +3,11 @@ package net.hasht.app;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
+import android.provider.Settings;
 import androidx.core.app.NotificationManagerCompat;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
@@ -48,6 +50,28 @@ public class NativePushPlugin extends Plugin {
     }
 
     // --- From the page
+
+    @PluginMethod
+    public void openSettings(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            Intent details = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:" + getContext().getPackageName()));
+            Intent settings = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, getContext().getPackageName())
+                : details;
+            try {
+                try {
+                    getActivity().startActivity(settings);
+                } catch (ActivityNotFoundException missingNotificationSettings) {
+                    getActivity().startActivity(details);
+                }
+                call.resolve();
+            } catch (RuntimeException error) {
+                call.reject("Couldn't open notification settings.", error);
+            }
+        });
+    }
 
     @PluginMethod
     public void register(PluginCall call) {
