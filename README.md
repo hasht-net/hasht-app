@@ -320,6 +320,20 @@ exist. Android still requires a keystore to produce a release build at all.
 Plus one repository **variable**: `MATCH_URL`, the SSH URL of your private
 certificates repo. Keep signing credentials and certificates outside this repo.
 
+### iOS encryption declaration
+
+The app and both extensions set `ITSAppUsesNonExemptEncryption` to `false`
+in their Info.plist files, so future uploads include the declaration instead
+of requiring the same Missing Compliance questionnaire for every build.
+The iOS shell uses Apple's CryptoKit for RFC 8291 push decryption and native
+sign-in hashing, and Apple's networking/WebKit for transport encryption.
+It does not bundle a separate cryptographic implementation. Reassess this
+declaration if that changes, including changes to linked libraries.
+
+Already-uploaded builds still need their compliance questions completed in
+App Store Connect; the declaration takes effect in newly built binaries.
+See [Apple's encryption declaration guidance](https://developer.apple.com/documentation/bundleresources/information-property-list/itsappusesnonexemptencryption).
+
 ### iOS signing
 
 CI can use exported signing files directly from GitHub Secrets. Configure:
