@@ -4,6 +4,18 @@ struct ShareDestination {
     let id: String
     let name: String
     let detail: String
+    let kind: Kind
+    let subtitle: String
+
+    enum Kind { case directMessage, channel }
+
+    init(id: String, name: String, detail: String, kind: Kind = .channel, subtitle: String = "") {
+        self.id = id
+        self.name = name
+        self.detail = detail
+        self.kind = kind
+        self.subtitle = subtitle
+    }
 }
 
 /// Refuse redirects so bearer credentials cannot leave the chosen instance.
@@ -67,13 +79,14 @@ final class ShareAPI: NSObject, URLSessionTaskDelegate {
             let members = dm["members"] as? [[String: Any]] ?? []
             let names = members.map { $0["display_name"] as? String ?? $0["username"] as? String ?? "Unknown" }
             let name = dm["name"] as? String ?? peer?["display_name"] as? String ?? peer?["username"] as? String ?? names.joined(separator: ", ")
-            result.append(ShareDestination(id: id, name: name, detail: "Direct messages"))
+            let subtitle = dm["is_group"] as? Bool == true ? "Group conversation" : peer?["username"] as? String ?? "Direct message"
+            result.append(ShareDestination(id: id, name: name, detail: "Direct messages", kind: .directMessage, subtitle: subtitle))
         }
         for channel in channels {
             guard let id = channel["id"] as? String, writable.contains(id), channel["is_dm"] as? Bool != true,
                   channel["channel_type"] as? String == "text", let name = channel["name"] as? String else { continue }
             let server = servers.first { $0["id"] as? String == channel["server_id"] as? String }
-            result.append(ShareDestination(id: id, name: "#" + name, detail: server?["name"] as? String ?? "Channels"))
+            result.append(ShareDestination(id: id, name: "#" + name, detail: server?["name"] as? String ?? "Channels", subtitle: channel["topic"] as? String ?? "Text channel"))
         }
         return result
     }
