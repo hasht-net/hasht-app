@@ -82,7 +82,9 @@ public class NativePushPlugin extends Plugin {
     }
 
     private void registerWithRelay(PluginCall call) {
-        String origin = activeOrigin(getContext());
+        JSONObject active = ServerConfigPlugin.activeServer(getContext());
+        String backendOrigin = active == null ? null : ServerConfigPlugin.originKey(Uri.parse(active.optString("url")));
+        String origin = activeAccountKey(getContext());
         if (origin == null) {
             call.reject("NativePush.register must be called from an instance's page");
             return;
@@ -98,7 +100,7 @@ public class NativePushPlugin extends Plugin {
             try {
                 String token = Tasks.await(FirebaseMessaging.getInstance().getToken());
                 PushStore.setToken(context, token);
-                PushStore.Registration reg = PushRelay.register(context, origin, relay, token);
+                PushStore.Registration reg = PushRelay.register(context, origin, relay, token, backendOrigin);
                 JSObject result = new JSObject();
                 result.put("endpoint", reg.endpoint);
                 result.put("p256dh", PushStore.b64(reg.publicKey));
@@ -112,7 +114,7 @@ public class NativePushPlugin extends Plugin {
 
     @PluginMethod
     public void unregister(PluginCall call) {
-        String origin = activeOrigin(getContext());
+        String origin = activeAccountKey(getContext());
         try {
             if (origin != null) unregister(getContext(), origin);
             call.resolve();
@@ -129,7 +131,7 @@ public class NativePushPlugin extends Plugin {
             call.reject("tag is required");
             return;
         }
-        String origin = activeOrigin(getContext());
+        String origin = activeAccountKey(getContext());
         try {
             if (origin != null) PushNotifications.clearChannel(getContext(), origin, tag);
             call.resolve();
@@ -140,27 +142,31 @@ public class NativePushPlugin extends Plugin {
 
     @PluginMethod
     public void recoveryNeeded(PluginCall call) {
-        String origin = activeOrigin(getContext());
+        String origin = activeAccountKey(getContext());
+        recoveryAccountKey = origin;
         long generation = origin == null ? 0 : PushNotifications.recoveryGeneration(getContext(), origin);
         JSObject result = new JSObject();
         result.put("needed", generation != 0);
         result.put("generation", generation);
-        result.put("origin", origin);
+        result.put("origin", activeBackendOrigin(getContext()));
         call.resolve(result);
     }
 
     @PluginMethod
     public void completeRecovery(PluginCall call) {
         String expected = call.getString("origin");
-        String origin = activeOrigin(getContext());
+        String origin = activeAccountKey(getContext());
         Long generation = call.getLong("generation");
-        if (origin != null && origin.equals(expected) && generation != null) {
+        if (origin != null && origin.equals(recoveryAccountKey)
+            && activeBackendOrigin(getContext()).equals(expected) && generation != null) {
             PushNotifications.completeRecovery(getContext(), origin, generation);
         }
         call.resolve();
     }
 
     // --- From the shell
+
+    private String recoveryAccountKey;
 
     /** Relay row, keys and delivered notifications for `origin`. Also sign-out. */
     static void unregister(Context context, String origin) {
@@ -172,10 +178,14 @@ public class NativePushPlugin extends Plugin {
         executor.execute(() -> PushRelay.deleteRegistrations(gone));
     }
 
-    static String activeOrigin(Context context) {
+    static String activeBackendOrigin(Context context) {
         JSONObject active = ServerConfigPlugin.activeServer(context);
-        String url = active == null ? null : active.optString("url", null);
-        return url == null ? null : ServerConfigPlugin.originKey(Uri.parse(url));
+        return active == null ? null : ServerConfigPlugin.originKey(Uri.parse(active.optString("url")));
+    }
+
+    static String activeAccountKey(Context context) {
+        JSONObject active = ServerConfigPlugin.activeServer(context);
+        return active == null ? null : ServerConfigPlugin.pushKey(active);
     }
 
     /**
@@ -207,11 +217,11 @@ public class NativePushPlugin extends Plugin {
         intent.removeExtra(PushNotifications.EXTRA_ORIGIN);
         intent.removeExtra(PushNotifications.EXTRA_URL);
 
-        if (origin.equals(activeOrigin(context))) {
+        if (origin.equals(activeAccountKey(context))) {
             pendingTapUrl = url;
             return false;
         }
-        String id = ServerConfigPlugin.serverIdForOrigin(context, Uri.parse(origin));
+        String id = ServerConfigPlugin.serverIdForPushKey(context, origin);
         if (id == null) return false; // The server was removed since.
         ServerConfigPlugin.activate(context, id);
         pendingTapUrl = url;

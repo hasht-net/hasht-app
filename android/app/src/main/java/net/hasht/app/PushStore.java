@@ -36,6 +36,8 @@ final class PushStore {
 
     static final class Registration {
         final String origin;
+        String accountKey;
+        String scope() { return accountKey == null ? origin : accountKey; }
         final String relayUrl;
         final String id;
         final String endpoint;
@@ -60,7 +62,7 @@ final class PushStore {
 
         JSONObject toJson() throws JSONException {
             return new JSONObject()
-                .put("origin", origin)
+                .put("origin", origin).put("accountKey", accountKey)
                 .put("relayUrl", relayUrl)
                 .put("id", id)
                 .put("endpoint", endpoint)
@@ -70,10 +72,12 @@ final class PushStore {
         }
 
         static Registration fromJson(JSONObject o) throws JSONException {
-            return new Registration(
+            Registration registration = new Registration(
                 o.getString("origin"), o.getString("relayUrl"), o.getString("id"),
                 o.getString("endpoint"), unb64(o.getString("privateKey")),
                 unb64(o.getString("publicKey")), unb64(o.getString("auth")));
+            registration.accountKey = o.isNull("accountKey") ? null : o.optString("accountKey", null);
+            return registration;
         }
     }
 

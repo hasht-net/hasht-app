@@ -64,10 +64,11 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
         }
         Task {
             do {
-                guard let origin = await pageOrigin() else {
+                guard let account = await pageAccount() else {
                     call.reject("NativePush.register must be called from an instance's page")
                     return
                 }
+                let origin = account.key
                 // `prompt: false` is the page re-checking on load, which must
                 // never put a permission dialog in front of the user.
                 let center = UNUserNotificationCenter.current()
@@ -83,7 +84,7 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
                     return
                 }
                 let token = try await apnsToken()
-                let reg = try await registration(origin: origin, relay: relay, token: token)
+                let reg = try await registration(origin: origin, backendOrigin: account.origin, relay: relay, token: token)
                 call.resolve([
                     "endpoint": reg.endpoint,
                     "p256dh": reg.publicKey?.base64URL ?? "",
@@ -124,8 +125,8 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
     /// notifications. Called on sign-out as well as from the page.
     func unregister(origin: String) async {
         var regs = PushKeychain.load()
-        let gone = regs.filter { $0.origin == origin }
-        regs.removeAll { $0.origin == origin }
+        let gone = regs.filter { $0.key == origin }
+        regs.removeAll { $0.key == origin }
         PushKeychain.save(regs)
         for reg in gone {
             _ = try? await relayRequest("DELETE", "\(reg.relayUrl)/v1/register/\(reg.id)", body: nil)
@@ -146,7 +147,7 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
             completion(.noData)
             return
         }
-        removeDelivered(origin: message.origin, tag: message.tag, ids: message.ids) {
+        removeDelivered(origin: message.key, tag: message.tag, ids: message.ids) {
             completion(.newData)
         }
     }
@@ -158,7 +159,7 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
         center.getDeliveredNotifications { delivered in
             let doomed = delivered.filter { note in
                 let info = note.request.content.userInfo
-                guard info["origin"] as? String == origin else { return false }
+                guard (info["accountKey"] as? String ?? info["origin"] as? String) == origin else { return false }
                 if let tag = tag, info["tag"] as? String != tag { return false }
                 if ids.isEmpty { return true }
                 return !Set(info["ids"] as? [String] ?? []).isDisjoint(with: ids)
@@ -173,7 +174,8 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
     /// Mirrors the web service worker: no banner for the instance on screen,
     /// whose page already shows the message. Another instance's still shows.
     public func willPresent(notification: UNNotification) -> UNNotificationPresentationOptions {
-        let origin = notification.request.content.userInfo["origin"] as? String
+        let info = notification.request.content.userInfo
+        let origin = info["accountKey"] as? String ?? info["origin"] as? String
         if UIApplication.shared.applicationState == .active, origin != nil, origin == activeOrigin() {
             return []
         }
@@ -182,19 +184,19 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
 
     public func didReceive(response: UNNotificationResponse) {
         let info = response.notification.request.content.userInfo
-        guard let origin = info["origin"] as? String,
+        guard let origin = info["accountKey"] as? String ?? info["origin"] as? String,
               let url = info["url"] as? String
         else { return }
 
         if origin == activeOrigin() {
             // Retained, so a tap that launched the app still reaches the page
             // once it has loaded and added its listener.
-            let path = url.hasPrefix(origin) ? String(url.dropFirst(origin.count)) : url
+            let backend = info["origin"] as? String ?? origin
+            let path = url.hasPrefix(backend) ? String(url.dropFirst(backend.count)) : url
             notifyListeners("notificationTapped", data: ["url": path.isEmpty ? "/" : path],
                             retainUntilConsumed: true)
         } else if let servers = serverConfig,
-                  let originURL = URL(string: origin),
-                  let id = servers.serverId(forOrigin: originURL) {
+                  let id = servers.serverId(forPushKey: origin) {
             // Another instance: switch to it, straight to the message.
             servers.activate(id, loading: url)
         }
@@ -202,15 +204,19 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
 
     // MARK: - Internals
 
-    private func activeOrigin() -> String? {
-        serverConfig?.activeServer.flatMap { URL(string: $0.url) }.map(ServerConfigPlugin.originKey)
+    private func activeOrigin() -> String? { serverConfig?.activePushKey }
+
+    @MainActor
+    private func pageAccount() -> (key: String, origin: String)? {
+        guard let url = bridge?.webView?.url, ["https", "http"].contains(url.scheme),
+              let active = serverConfig?.activeServer, let base = URL(string: active.url),
+              ServerConfigPlugin.originKey(url) == ServerConfigPlugin.originKey(base),
+              let key = serverConfig?.activePushKey else { return nil }
+        return (key, ServerConfigPlugin.originKey(base))
     }
 
     @MainActor
-    private func pageOrigin() -> String? {
-        guard let url = bridge?.webView?.url, ["https", "http"].contains(url.scheme) else { return nil }
-        return ServerConfigPlugin.originKey(url)
-    }
+    private func pageOrigin() -> String? { pageAccount()?.key }
 
     private func apnsToken() async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
@@ -261,11 +267,11 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
     /// refreshed with the current token; if the relay has forgotten it (pruned,
     /// or its token died) a new one replaces it, and the page re-subscribes
     /// with the new endpoint.
-    private func registration(origin: String, relay: String, token: String) async throws -> PushRegistration {
+    private func registration(origin: String, backendOrigin: String, relay: String, token: String) async throws -> PushRegistration {
         let relay = relay.hasSuffix("/") ? String(relay.dropLast()) : relay
         var regs = PushKeychain.load()
 
-        if let existing = regs.first(where: { $0.origin == origin }) {
+        if let existing = regs.first(where: { $0.key == origin }) {
             if existing.relayUrl == relay {
                 let (status, _) = try await relayRequest(
                     "PUT", "\(relay)/v1/register/\(existing.id)", body: registerBody(token))
@@ -275,7 +281,7 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
             } else {
                 _ = try? await relayRequest("DELETE", "\(existing.relayUrl)/v1/register/\(existing.id)", body: nil)
             }
-            regs.removeAll { $0.origin == origin }
+            regs.removeAll { $0.key == origin }
         }
 
         let (status, json) = try await relayRequest("POST", "\(relay)/v1/register", body: registerBody(token))
@@ -287,8 +293,11 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
         guard ok == errSecSuccess else { throw URLError(.unknown) }
 
         let reg = PushRegistration(
-            origin: origin, relayUrl: relay, id: id, endpoint: endpoint,
-            privateKey: P256.KeyAgreement.PrivateKey().rawRepresentation, auth: auth)
+            origin: backendOrigin, relayUrl: relay, id: id, endpoint: endpoint,
+            privateKey: P256.KeyAgreement.PrivateKey().rawRepresentation, auth: auth,
+            accountKey: origin == backendOrigin ? nil : origin)
+        regs = PushKeychain.load()
+        regs.removeAll { $0.key == origin }
         regs.append(reg)
         guard PushKeychain.save(regs) else { throw URLError(.cannotCreateFile) }
         return reg

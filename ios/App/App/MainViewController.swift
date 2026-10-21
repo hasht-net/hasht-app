@@ -30,6 +30,7 @@ class MainViewController: CAPBridgeViewController {
 
     override open func capacitorDidLoad() {
         if let webView = webView {
+            serverConfig.installAccountSession(in: webView)
             shareSessionSync.install(in: webView, serverConfig: serverConfig)
         }
         bridge?.registerPluginInstance(serverConfig)

@@ -8,6 +8,7 @@ private struct ServerEntry: Codable {
     let id: String
     let url: String
     var name: String
+    var legacySession: Bool? = nil
 }
 
 /// The servers the user has added, and which one the webview is pointed at.
@@ -17,9 +18,7 @@ private struct ServerEntry: Codable {
 /// active server; with none set the bundled wizard is what the user sees.
 ///
 /// Mirrors `hasht-desktop`'s `serverStore.ts`. Holds only which servers the
-/// user added — never credentials, which stay in each origin's own cookie jar
-/// (WKWebView isolates those per origin, so switching servers keeps sessions
-/// separate for free).
+/// user added. Sign-in storage and push registrations are scoped to each entry.
 @objc(ServerConfigPlugin)
 public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "ServerConfigPlugin"
@@ -46,12 +45,27 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let data = UserDefaults.standard.data(forKey: Self.serversKey),
                   let decoded = try? JSONDecoder().decode([ServerEntry].self, from: data)
             else { return [] }
-            return decoded
+            var migrated = decoded
+            var claimed = Set<String>()
+            for index in migrated.indices {
+                let origin = URL(string: migrated[index].url).map(Self.originKey) ?? migrated[index].url
+                if migrated[index].legacySession == nil {
+                    migrated[index].legacySession = claimed.insert(origin).inserted
+                } else if migrated[index].legacySession == true {
+                    claimed.insert(origin)
+                }
+            }
+            if decoded.contains(where: { $0.legacySession == nil }) {
+                UserDefaults.standard.set(try? JSONEncoder().encode(migrated), forKey: Self.serversKey)
+            }
+            return migrated
         }
         set {
             UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: Self.serversKey)
         }
     }
+
+    private var accountScript: WKUserScript?
 
     private var activeId: String? {
         get { UserDefaults.standard.string(forKey: Self.activeKey) }
@@ -133,15 +147,11 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     /// receiving the last one's messages.
     @objc func signOut(_ call: CAPPluginCall) {
         ShareSession.save(nil)
-        if let push = bridge?.plugin(withName: "NativePush") as? NativePushPlugin {
-            Task { @MainActor in
-                if let url = self.bridge?.webView?.url, ["https", "http"].contains(url.scheme) {
-                    await push.unregister(origin: Self.originKey(url))
-                }
-            }
+        if let push = bridge?.plugin(withName: "NativePush") as? NativePushPlugin,
+           let key = activePushKey {
+            Task { @MainActor in await push.unregister(origin: key) }
         }
         DispatchQueue.main.async {
-            UNUserNotificationCenter.current().removeAllDeliveredNotifications()
             if #available(iOS 16.0, *) {
                 UNUserNotificationCenter.current().setBadgeCount(0)
             } else {
@@ -180,10 +190,40 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         return (entry.id, entry.url)
     }
 
-    /// The added server at this origin, if any. Compared by origin rather than
-    /// string so a stored trailing slash or default port still matches.
-    func serverId(forOrigin origin: URL) -> String? {
-        servers.first { URL(string: $0.url).map(Self.originKey) == Self.originKey(origin) }?.id
+    var activePushKey: String? {
+        guard let entry = servers.first(where: { $0.id == activeId }), let url = URL(string: entry.url) else { return nil }
+        return entry.legacySession == true ? Self.originKey(url) : entry.id
+    }
+
+    func serverId(forPushKey key: String) -> String? {
+        servers.first { entry in
+            let origin = URL(string: entry.url).map(Self.originKey)
+            return (entry.legacySession == true ? origin : entry.id) == key
+        }?.id
+    }
+
+    func installAccountSession(in webView: WKWebView) {
+        guard let entry = servers.first(where: { $0.id == activeId }), let url = URL(string: entry.url),
+              let asset = Bundle.main.url(forResource: "account-session", withExtension: "js", subdirectory: "public/native"),
+              let script = try? String(contentsOf: asset, encoding: .utf8),
+              let config = try? JSONSerialization.data(withJSONObject: [
+                "origin": Self.originKey(url), "id": entry.id,
+                "key": entry.legacySession == true ? "chat_auth" : "hasht.account.\(entry.id).auth"
+              ]), let json = String(data: config, encoding: .utf8) else { return }
+        let source = """
+        window.HashtAccount = (() => {
+          const config = \(json);
+          return {getOrigin: () => config.origin, getAccountID: () => config.id, getStorageKey: () => config.key};
+        })();
+        \(script)
+        """
+        let controller = webView.configuration.userContentController
+        let others = controller.userScripts.filter { $0 !== accountScript }
+        controller.removeAllUserScripts()
+        let installed = WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true)
+        controller.addUserScript(installed)
+        others.forEach { controller.addUserScript($0) }
+        accountScript = installed
     }
 
     /// Adds without loading, so a sign-in can finish before the webview moves.
@@ -205,7 +245,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func append(url: String, name: String) -> ServerEntry {
-        let entry = ServerEntry(id: UUID().uuidString, url: url, name: name)
+        let entry = ServerEntry(id: UUID().uuidString, url: url, name: name, legacySession: false)
         servers.append(entry)
         return entry
     }
@@ -241,7 +281,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("id and a non-empty name are required")
             return
         }
-        servers = servers.map { $0.id == id ? ServerEntry(id: $0.id, url: $0.url, name: name) : $0 }
+        servers = servers.map { $0.id == id ? ServerEntry(id: $0.id, url: $0.url, name: name, legacySession: $0.legacySession) : $0 }
         call.resolve()
     }
 
@@ -315,6 +355,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         ShareSession.save(nil)
         DispatchQueue.main.async { [weak self] in
             guard let url = URL(string: raw), let webView = self?.bridge?.webView else { return }
+            self?.installAccountSession(in: webView)
             webView.load(URLRequest(url: url))
         }
     }

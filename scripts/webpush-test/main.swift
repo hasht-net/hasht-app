@@ -62,4 +62,15 @@ check(opened?.kind == "remove" && opened?.ids == ["2"] && opened?.tag == "channe
 let legacy = encrypt(Data(#"{"title":"t","url":"/x"}"#.utf8), to: a.publicKey, auth: auth).base64URL
 check(PushMessage.open(enc: legacy, registrations: regs)?.kind == "message", "kind defaults to message")
 
+let accountA = PushRegistration(origin: "https://same.test", relayUrl: "", id: "a", endpoint: "", privateKey: a.rawRepresentation, auth: auth, accountKey: "entry-a")
+let accountB = PushRegistration(origin: "https://same.test", relayUrl: "", id: "b", endpoint: "", privateKey: b.rawRepresentation, auth: auth, accountKey: "entry-b")
+let duplicate = PushMessage.open(enc: enc, registrations: [accountA, accountB])
+check(duplicate?.key == "entry-b", "same-origin push selects the correct account")
+check(duplicate?.absoluteURL == "https://same.test/channels/1/2", "account key must not change the backend URL")
+check(duplicate?.userInfo["accountKey"] as? String == "entry-b", "notification retains account routing")
+var oldRegistration = try! JSONSerialization.jsonObject(with: JSONEncoder().encode(other)) as! [String: Any]
+oldRegistration.removeValue(forKey: "accountKey")
+let restored = try! JSONDecoder().decode(PushRegistration.self, from: JSONSerialization.data(withJSONObject: oldRegistration))
+check(restored.key == restored.origin, "old registrations retain origin routing")
+
 print("ok")

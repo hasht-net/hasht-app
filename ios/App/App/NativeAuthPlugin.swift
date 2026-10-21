@@ -102,8 +102,7 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
         }
     }
 
-    /// Finds or adds the server, parks the auth for it, then moves the webview
-    /// there — the page picks the auth up on load.
+    /// A browser handoff creates an account without replacing a saved one.
     private func adopt(_ auth: [String: Any], for origin: URL) {
         guard let servers = serverConfig else { return }
         let finish = { (id: String) in
@@ -111,10 +110,6 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
                 self.pendingAuth[id] = auth
                 servers.activate(id)
             }
-        }
-        if let id = servers.serverId(forOrigin: origin) {
-            finish(id)
-            return
         }
         servers.fetchName(base: origin) { name in
             DispatchQueue.main.async {

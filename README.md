@@ -28,7 +28,10 @@ returns `unavailable`.
 On first launch, the instance picker offers Hasht Cloud (`chat.hasht.net`) or a
 self-hosted server. Self-hosted URLs are checked through `/api/health` using a
 native request. The app remembers added instances and loads the active one on
-later launches. Credentials stay with each instance's origin.
+later launches. Each saved entry has its own sign-in, so you can add the same
+backend more than once for different accounts. On upgrade, the first existing
+entry for each backend keeps its previous sign-in. Other browser storage is
+shared by origin.
 
 The remote frontend calls native plugins through `window.Capacitor`.
 [src/integration/hashtNative.ts](src/integration/hashtNative.ts) defines the
@@ -77,7 +80,7 @@ subscription for the instance to store through `/api/push/subscribe`. The relay
 forwards encrypted payloads through APNs or FCM. Decryption happens on the
 device in the iOS Notification Service Extension or Android messaging service.
 
-Each instance has its own registration and keypair. iOS keys are shared with
+Each saved account has its own registration and keypair. iOS keys are shared with
 the extension through the App Group Keychain (`group.net.hasht.app`); Android
 keys are wrapped with Android Keystore. Tapping a notification switches to its
 instance. The active instance does not show foreground banners.
@@ -142,6 +145,7 @@ the system splash; older Android and iOS use a plain dark launch screen.
 
 ```sh
 npx tsc --noEmit
+node --test scripts/account-session.test.mjs
 npm run build
 scripts/test-webpush-ios.sh
 scripts/test-share-ios.sh
