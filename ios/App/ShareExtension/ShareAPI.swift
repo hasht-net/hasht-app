@@ -6,15 +6,17 @@ struct ShareDestination {
     let detail: String
     let kind: Kind
     let subtitle: String
+    let avatarPath: String?
 
     enum Kind { case directMessage, channel }
 
-    init(id: String, name: String, detail: String, kind: Kind = .channel, subtitle: String = "") {
+    init(id: String, name: String, detail: String, kind: Kind = .channel, subtitle: String = "", avatarPath: String? = nil) {
         self.id = id
         self.name = name
         self.detail = detail
         self.kind = kind
         self.subtitle = subtitle
+        self.avatarPath = avatarPath
     }
 }
 
@@ -66,6 +68,15 @@ final class ShareAPI: NSObject, URLSessionTaskDelegate {
         return try decode(data, response)
     }
 
+    func avatarData(_ path: String) async throws -> Data {
+        let (data, response) = try await session.data(for: request(path))
+        guard let response = response as? HTTPURLResponse, response.statusCode == 200,
+              response.mimeType?.hasPrefix("image/") == true else {
+            throw ShareError.message("Avatar unavailable.")
+        }
+        return data
+    }
+
     func destinations() async throws -> [ShareDestination] {
         let channels = try await get("/me/channels") as? [[String: Any]] ?? []
         let servers = try await get("/servers") as? [[String: Any]] ?? []
@@ -80,7 +91,16 @@ final class ShareAPI: NSObject, URLSessionTaskDelegate {
             let names = members.map { $0["display_name"] as? String ?? $0["username"] as? String ?? "Unknown" }
             let name = dm["name"] as? String ?? peer?["display_name"] as? String ?? peer?["username"] as? String ?? names.joined(separator: ", ")
             let subtitle = dm["is_group"] as? Bool == true ? "Group conversation" : peer?["username"] as? String ?? "Direct message"
-            result.append(ShareDestination(id: id, name: name, detail: "Direct messages", kind: .directMessage, subtitle: subtitle))
+            var avatarPath: String?
+            if dm["is_group"] as? Bool != true, let peerID = peer?["id"] as? String,
+               let version = peer?["avatar_updated_at"] as? String {
+                let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
+                if let user = peerID.addingPercentEncoding(withAllowedCharacters: allowed),
+                   let version = version.addingPercentEncoding(withAllowedCharacters: allowed) {
+                    avatarPath = "/avatars/\(user)?v=\(version)"
+                }
+            }
+            result.append(ShareDestination(id: id, name: name, detail: "Direct messages", kind: .directMessage, subtitle: subtitle, avatarPath: avatarPath))
         }
         for channel in channels {
             guard let id = channel["id"] as? String, writable.contains(id), channel["is_dm"] as? Bool != true,

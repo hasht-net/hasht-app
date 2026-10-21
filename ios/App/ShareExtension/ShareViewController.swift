@@ -402,7 +402,7 @@ final class ShareViewController: UIViewController, UITableViewDataSource, UITabl
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "destination", for: indexPath) as! ShareDestinationCell
         let destination = sections[indexPath.section].items[indexPath.row]
-        cell.configure(destination, selected: selected?.id == destination.id)
+        cell.configure(destination, selected: selected?.id == destination.id, api: api)
         return cell
     }
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
@@ -478,6 +478,13 @@ final class ShareViewController: UIViewController, UITableViewDataSource, UITabl
 private final class ShareDestinationCell: UITableViewCell {
     private let card = UIView()
     private let avatar = UILabel()
+    private let avatarImage = UIImageView()
+    private var avatarTask: Task<Void, Never>?
+    private static let avatarCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.totalCostLimit = 8 * 1024 * 1024
+        return cache
+    }()
     private let name = ShareStyle.label(15, weight: .semibold)
     private let detail = ShareStyle.label(12, color: .secondaryLabel)
     private let check = UIImageView()
@@ -492,6 +499,8 @@ private final class ShareDestinationCell: UITableViewCell {
         avatar.font = .systemFont(ofSize: 15, weight: .semibold)
         avatar.layer.cornerRadius = 12
         avatar.clipsToBounds = true
+        avatarImage.contentMode = .scaleAspectFill
+        ShareStyle.pin(avatarImage, in: avatar)
         avatar.widthAnchor.constraint(equalToConstant: 42).isActive = true
         avatar.heightAnchor.constraint(equalToConstant: 42).isActive = true
         detail.lineBreakMode = .byTruncatingTail
@@ -509,7 +518,32 @@ private final class ShareDestinationCell: UITableViewCell {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func configure(_ destination: ShareDestination, selected: Bool) {
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        avatarTask?.cancel()
+        avatarTask = nil
+        avatarImage.image = nil
+    }
+
+    func configure(_ destination: ShareDestination, selected: Bool, api: ShareAPI?) {
+        avatarTask?.cancel()
+        avatarTask = nil
+        avatarImage.image = nil
+        if let api = api, let path = destination.avatarPath {
+            let key = (api.auth.origin + "/api" + path) as NSString
+            if let image = Self.avatarCache.object(forKey: key) {
+                avatarImage.image = image
+            } else {
+                avatarTask = Task { @MainActor [weak self] in
+                    guard let data = try? await api.avatarData(path), !Task.isCancelled,
+                          let image = UIImage(data: data) else { return }
+                    let size = CGSize(width: 84, height: 84)
+                    let thumbnail = image.preparingThumbnail(of: size) ?? image
+                    Self.avatarCache.setObject(thumbnail, forKey: key, cost: 84 * 84 * 4)
+                    self?.avatarImage.image = thumbnail
+                }
+            }
+        }
         let isDM = destination.kind == .directMessage
         name.text = isDM ? destination.name : destination.name.replacingOccurrences(of: "#", with: "", range: destination.name.range(of: "#"))
         detail.text = destination.subtitle.isEmpty ? destination.detail : (isDM && destination.subtitle != "Group conversation" ? "@" + destination.subtitle : destination.subtitle)
