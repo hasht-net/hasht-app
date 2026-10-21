@@ -38,15 +38,16 @@ final class MockServer: URLProtocol {
             """
         case "/api/servers": body = "[{\"id\":\"server\",\"name\":\"Community\"}]"
         case "/api/dms": body = """
-            [{"channel_id":"dm","peer":{"username":"alice","display_name":"Alice","can_message":true}},
+            [{"channel_id":"dm","peer":{"id":"alice-id","username":"alice","display_name":"Alice","can_message":true,"avatar_updated_at":"2026-10-21T12:00:00+00:00"}},
              {"channel_id":"agent","peer":{"username":"disabled","can_message":false}}]
             """
         case "/api/channels/text/attachments": body = "{\"id\":\"attachment\"}"
         case "/api/channels/text/messages": body = "{\"id\":\"message\"}"
+        case "/api/avatars/alice-id": body = "avatar-bytes"
         case "/api/expired": status = 401; body = "{}"
         default: status = 500; body = "{}"
         }
-        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: ["Content-Type":"application/json"])!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": path.hasPrefix("/api/avatars/") ? "image/png" : "application/json"])!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(body.utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
@@ -118,6 +119,17 @@ func run() async throws {
     try require(destinations[0].kind == .directMessage && destinations[0].subtitle == "alice", "DM identity metadata missing")
     try require(destinations[1].kind == .channel, "channel filter metadata missing")
     try require(destinations[0].name == "Alice" && destinations[1].detail == "Community", "destination labels failed")
+    try require(destinations[1].avatarPath == nil, "channel should keep its placeholder")
+    try require(destinations[0].avatarPath == "/avatars/alice-id?v=2026-10-21T12%3A00%3A00%2B00%3A00", "avatar metadata or version escaping missing")
+    let avatar = try await api.avatarData(destinations[0].avatarPath!)
+    try require(avatar == Data("avatar-bytes".utf8), "avatar bytes missing")
+    try require(MockServer.requests.last?.url?.host == "hasht.example", "avatar left the active instance")
+    do {
+        _ = try await api.avatarData("/expired")
+        throw ShareError.message("failed avatar response was accepted")
+    } catch ShareError.message(let message) {
+        try require(message == "Avatar unavailable.", "wrong avatar failure")
+    }
     let id = try await api.upload(ShareFile(url: source, name: "sample.txt", type: "text/plain"), channel: "text", directory: directory)
     try require(id == "attachment", "upload ID missing")
     let clientID = UUID().uuidString
