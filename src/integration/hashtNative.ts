@@ -285,3 +285,12 @@ export async function takeNativeShare(): Promise<NativeShare | null> {
 export function onNativeShare(handler: () => void): void {
   void capacitor()?.Plugins?.ShareTarget?.addListener('shareReceived', handler);
 }
+
+/** Opens Hasht's system notification settings; rejects on unsupported older shells. */
+export async function openNativeNotificationSettings(): Promise<void> {
+  const push = capacitor()?.Plugins?.NativePush;
+  if (!isNativeShell() || !push?.openSettings) {
+    throw new Error('Update the Hasht app to open notification settings.');
+  }
+  await push.openSettings();
+}

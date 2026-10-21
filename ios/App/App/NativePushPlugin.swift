@@ -21,7 +21,8 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "register", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "unregister", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "clearChannel", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "clearChannel", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "openSettings", returnType: CAPPluginReturnPromise)
     ]
 
     private static let tokenKey = "net.hasht.app.push.apnsToken"
@@ -56,6 +57,25 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
     }
 
     // MARK: - From the page
+
+    @objc func openSettings(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            let urlString: String
+            if #available(iOS 16.0, *) {
+                urlString = UIApplication.openNotificationSettingsURLString
+            } else {
+                urlString = UIApplication.openSettingsURLString
+            }
+            guard let url = URL(string: urlString) else {
+                call.reject("Couldn't open notification settings.")
+                return
+            }
+            UIApplication.shared.open(url, options: [:]) { opened in
+                if opened { call.resolve() }
+                else { call.reject("Couldn't open notification settings.") }
+            }
+        }
+    }
 
     @objc func register(_ call: CAPPluginCall) {
         guard let relay = call.getString("relayUrl"), URL(string: relay)?.scheme == "https" else {
