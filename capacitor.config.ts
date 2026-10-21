@@ -26,6 +26,11 @@ const config: CapacitorConfig = {
     allowMixedContent: false,
   },
   plugins: {
+    SystemBars: {
+      // Both the picker and remote frontend use viewport-fit=cover. Apply it
+      // before the first paint so activity recreation does not resize the view.
+      initialViewportFitValueHint: 'cover',
+    },
     App: {
       // MainActivity owns Android back. Left on, this handler swallows back
       // whenever the webview has no history.
