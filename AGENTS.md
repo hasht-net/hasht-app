@@ -6,6 +6,8 @@ frontend from a user-configured instance.
 ## Layout
 
 - `index.html`, `src/bootstrap.ts`, `src/bootstrap.css` — the instance picker.
+  Its colors, radii and font (Manrope, bundled) are copied from hasht-chat's
+  `frontend/src/style.css` and sign-in screen; keep them in step.
   The main app UI; the iOS Share Extension also ships a native destination
   picker. Everything after connecting in the main app is the remote
   Vue app.

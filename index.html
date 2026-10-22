@@ -9,23 +9,36 @@
   </head>
   <body>
     <main class="wizard">
-      <header>
+      <header class="brand">
+        <img class="brand-mark" src="/icon-192.png" alt="" />
         <h1 id="headline">Welcome to Hasht</h1>
         <p id="tagline" class="tagline">Choose how you want to connect.</p>
       </header>
 
-      <section id="servers-section" hidden>
-        <h2 id="servers-heading">Your servers</h2>
+      <section id="servers-section" class="panel glass" hidden>
+        <div class="panel-head">
+          <h2>Your servers</h2>
+          <button
+            id="add-toggle"
+            class="icon-btn add-toggle"
+            type="button"
+            aria-label="Add a server"
+            aria-expanded="false"
+            aria-controls="add-section"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+          </button>
+        </div>
         <ul id="servers" class="servers"></ul>
       </section>
 
-      <section>
+      <section id="add-section" class="panel glass">
         <h2 id="add-heading">Connect</h2>
 
         <div class="card" id="card-hosted" data-choice="hosted">
           <button class="card-head" type="button">
             <span class="card-title">Hasht Cloud <span class="badge">Hosted</span></span>
-            <span class="card-sub">Sign in at chat.hasht.net — nothing to run yourself.</span>
+            <span class="card-sub">Sign in at chat.hasht.net. Nothing to run yourself.</span>
           </button>
           <div class="card-body">
             <button id="hosted-connect" class="primary" type="button">Continue</button>
@@ -47,9 +60,10 @@
                 autocorrect="off"
                 spellcheck="false"
                 placeholder="chat.example.com"
+                aria-label="Server address"
                 required
               />
-              <input id="name" type="text" placeholder="Name (optional)" autocapitalize="words" />
+              <input id="name" type="text" placeholder="Name (optional)" aria-label="Name" autocapitalize="words" />
               <button id="selfhosted-connect" class="primary" type="submit">Connect</button>
             </form>
           </div>
