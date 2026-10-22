@@ -1,3 +1,4 @@
+import SafariServices
 import Capacitor
 import Foundation
 import UIKit
@@ -45,6 +46,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "setLinkMode", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setAccount", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setDefault", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "openSecurityManagement", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "openSecuritySettings", returnType: CAPPluginReturnPromise)
     ]
 
@@ -198,6 +200,30 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     /// A fixed same-instance destination; credentials never go in the URL.
+    @objc func openSecurityManagement(_ call: CAPPluginCall) {
+        guard let ticket = call.getString("ticket"),
+              ticket.range(of: "^[0-9a-fA-F]{64}$", options: .regularExpression) != nil,
+              let active = activeServer, let base = URL(string: active.url),
+              base.scheme == "https",
+              var target = URLComponents(string: Self.originKey(base)) else {
+            call.reject("A secure server and valid management ticket are required.")
+            return
+        }
+        target.path = "/"
+        target.queryItems = [URLQueryItem(name: "security_management", value: "1")]
+        target.fragment = "ticket=\(ticket)"
+        guard let url = target.url else { call.reject("Invalid server."); return }
+        DispatchQueue.main.async {
+            guard let presenter = self.bridge?.viewController else {
+                call.reject("Could not open passkey management.")
+                return
+            }
+            var top = presenter
+            while let next = top.presentedViewController { top = next }
+            top.present(SFSafariViewController(url: url), animated: true) { call.resolve() }
+        }
+    }
+
     @objc func openSecuritySettings(_ call: CAPPluginCall) {
         guard let userId = call.getString("userId"), UUID(uuidString: userId) != nil,
               let active = activeServer, let base = URL(string: active.url),

@@ -327,7 +327,14 @@ local restoration and the packaged account script clears the old key on the next
 visit to that origin. Remote session revocation requires connectivity. Android
 backup and device-transfer restore are disabled for app data.
 
-Security settings can open the selected instance's passkey management page in a
-real browser through `ServerConfig.openSecuritySettings({ userId })`. The URL
-carries only the account ID; the browser authenticates independently and checks
-that it is managing the same account. No bearer token is handed to the browser.
+Security settings use `ServerConfig.openSecurityManagement({ ticket })` to open
+an authenticated passkey management page in an iOS Safari sheet or Android
+Custom Tab. The shell validates the 64-character hex ticket and constructs
+`/?security_management=1#ticket=<ticket>` from the active instance's HTTPS origin.
+It never accepts an arbitrary destination or the app's session token.
+
+The server issues single-use tickets valid for 60 seconds. The page removes the
+fragment and exchanges it for a ten-minute credential limited to passkey
+management, held only in memory. Browser logins stay untouched; enrollment still
+requires password/passkey verification. Requires the matching chat server change.
+`openSecuritySettings({ userId })` remains available for older server frontends.

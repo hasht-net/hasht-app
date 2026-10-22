@@ -49,6 +49,7 @@ export interface ServerConfigPlugin {
    */
   signOut(): Promise<void>;
   /** Opens this instance’s security settings in a WebAuthn-capable browser. */
+  openSecurityManagement(options: { ticket: string }): Promise<void>;
   openSecuritySettings(options: { userId: string }): Promise<void>;
   /** Paints the status and navigation bars to match a page's resolved theme. */
   setTheme(options: { theme: 'dark' | 'light'; color: string }): Promise<void>;
