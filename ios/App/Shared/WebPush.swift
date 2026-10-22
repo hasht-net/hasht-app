@@ -84,11 +84,12 @@ struct PushMessage {
     /// A path on `origin`.
     let path: String?
     let tag: String?
-    /// `message`, `update` or `remove`. Older backends send none: a message.
+    /// Message, quiet catch-up, edit, exact removal, or channel read boundary.
     let kind: String
     let ids: [String]
     var created: Double? = nil
     var accountKey: String? = nil
+    var readThrough: Double? = nil
     var key: String { accountKey ?? origin }
 
     var absoluteURL: String? {
@@ -111,7 +112,8 @@ struct PushMessage {
                 tag: json["tag"] as? String,
                 kind: json["kind"] as? String ?? "message",
                 ids: (json["ids"] as? [Any])?.map { "\($0)" } ?? [],
-                created: (json["native_order"] as? [String: Any])?["created"] as? Double, accountKey: reg.accountKey)
+                created: (json["native_order"] as? [String: Any])?["created"] as? Double, accountKey: reg.accountKey,
+                readThrough: json["read_through"] as? Double)
         }
         return nil
     }

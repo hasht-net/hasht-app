@@ -114,9 +114,9 @@ export async function unregisterNativePush(): Promise<void> {
  * shade too. The native twin of `closeChannelNotifications()` — call both.
  * `tag` is the payload tag, `channel:<id>`.
  */
-export async function clearNativeChannel(tag: string): Promise<void> {
+export async function clearNativeChannel(tag: string, through?: number): Promise<void> {
   if (!isNativeShell()) return;
-  await capacitor()?.Plugins?.NativePush?.clearChannel({ tag });
+  await capacitor()?.Plugins?.NativePush?.clearChannel({ tag, through });
 }
 
 /** After an authenticated read snapshot, repair missed background recalls. */

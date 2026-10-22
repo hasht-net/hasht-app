@@ -35,7 +35,7 @@ export interface NativePushPlugin {
   /** Reconcile delivered notifications through server read timestamps in epoch microseconds. */
   reconcileReads(options: { reads: { tag: string; through: number }[] }): Promise<void>;
   /** Withdraws every delivered message notification for a channel. */
-  clearChannel(options: { tag: string }): Promise<void>;
+  clearChannel(options: { tag: string; through?: number }): Promise<void>;
   /** Android lost queued events; acknowledge after authenticated unread state loads. */
   recoveryNeeded(): Promise<{ needed: boolean; generation: number; origin: string }>;
   completeRecovery(options: { generation: number; origin: string }): Promise<void>;

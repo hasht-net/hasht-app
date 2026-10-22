@@ -6,3 +6,5 @@ cd "$(dirname "$0")/.."
 out="$(mktemp -d)"
 swiftc -o "$out/webpush-test" ios/App/Shared/WebPush.swift scripts/webpush-test/main.swift
 "$out/webpush-test"
+swiftc -o "$out/push-read-test" ios/App/Shared/PushReadState.swift scripts/push-read-test/main.swift
+"$out/push-read-test"

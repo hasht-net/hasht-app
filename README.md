@@ -111,23 +111,33 @@ the extension through the App Group Keychain (`group.net.hasht.app`); Android
 keys are wrapped with Android Keystore. Tapping a notification switches to its
 instance. The active instance does not show foreground banners.
 
-With a supporting backend, each message has its own notification identity.
-iOS groups messages by account and conversation; Android leaves grouping to
-the system. Older backends still replace a channel's notification. Android keeps
-bounded ordering state to suppress duplicates, late updates, and withdrawn messages. If FCM
-reports dropped events, the app clears stale notifications and asks the user
-to open Hasht to catch up. The frontend acknowledges recovery after loading
-authenticated channel and unread state. Older backends without ordering
-metadata have best-effort behavior.
+Each message has its own notification identity. iOS groups messages by account
+and conversation; Android leaves grouping to the system. Live messages alert
+normally. Idle catch-up messages are quiet: passive on iOS and delivered on a
+separate low-importance Android channel. The backend drains catch-up in paced,
+fair batches across conversations, prioritizing DMs and mentions; batch limits
+do not discard the remaining messages.
 
-Notification removals use background pushes, so immediate clearing on iOS is
-best effort and does not work when the app is force-quit. After reconnecting,
-the frontend supplies authenticated read markers to `reconcileReads`, which
-clears delivered notifications at or before each marker without clearing newer
-messages. This fallback requires the updated frontend and native app. Push
-providers may coalesce or drop offline deliveries; the unread feed remains the
-complete record. Native catch-up sends at most the latest 20 queued messages
-individually, rather than a count-only summary.
+Android stores changed notification identities transactionally in SQLite,
+without a daily message-count overflow. Both platforms retain authoritative
+channel read boundaries and deletion tombstones, scoped to the saved account.
+The frontend supplies read markers after reconnect and on local reads; push
+read controls coalesce a whole conversation read into one boundary. Markers
+use server message timestamps, never the phone's clock.
+
+Immediate clearing on iOS remains best effort because background pushes may
+be skipped, especially after force-quit. The notification extension makes
+covered late alerts quiet/passive and repairs older delivered notifications;
+it cannot discard its own incoming alert without Apple's separately approved
+notification-filtering entitlement. Foreground presentation suppresses covered
+alerts, and reconnect repairs delivered notifications. No filtering entitlement
+is added by this change. Push delivery remains a hint; the unread feed is the
+complete record.
+
+Deploy the quiet-catch-up relay change, native app, and backend together for
+this beta rollout. The transport uses `low` urgency for quiet visible catch-up
+and `very-low` for background read/remove controls. There is no capability
+negotiation or dual backend tracking path.
 
 ### Calls in the background
 
