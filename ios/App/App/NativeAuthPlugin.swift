@@ -70,6 +70,13 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
             query.append(URLQueryItem(name: "invite", value: invite))
         }
         if call.getBool("register") == true { query.append(URLQueryItem(name: "register", value: "1")) }
+        // What the Register form already had, so the browser's is filled in.
+        for (option, param) in [("username", "username"), ("displayName", "display_name")] {
+            if let value = call.getString(option).map({ $0.trimmingCharacters(in: .whitespaces) }),
+               (1...255).contains(value.count), value.rangeOfCharacter(from: .controlCharacters) == nil {
+                query.append(URLQueryItem(name: param, value: value))
+            }
+        }
         // The user just tapped Sign in on this server's own page: nothing to confirm.
         run(base: base, confirmHost: false, query: query) { result in
             switch result {

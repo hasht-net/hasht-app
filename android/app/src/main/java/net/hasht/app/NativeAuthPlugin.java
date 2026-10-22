@@ -81,6 +81,9 @@ public class NativeAuthPlugin extends Plugin {
         /** Register tab and invite from the page; they only shape the browser's form. */
         String invite;
         boolean register;
+        /** What the page's Register form already had, so the browser's is filled in. */
+        String username;
+        String displayName;
         String requestId;
         String verifier;
         boolean inBrowser;
@@ -135,10 +138,14 @@ public class NativeAuthPlugin extends Plugin {
         String invite = call.getString("invite");
         final String validInvite = invite != null && invite.matches("[A-Za-z0-9]{1,32}") ? invite : null;
         final boolean register = Boolean.TRUE.equals(call.getBoolean("register", false));
+        final String username = prefillName(call.getString("username"));
+        final String displayName = prefillName(call.getString("displayName"));
         // The user just tapped Sign in on this server's own page: nothing to confirm.
         run(active.optString("url"), false, handoff -> {
             handoff.invite = validInvite;
             handoff.register = register;
+            handoff.username = username;
+            handoff.displayName = displayName;
         }, new Outcome() {
             @Override
             public void signedIn(JSObject auth) {
@@ -290,6 +297,8 @@ public class NativeAuthPlugin extends Plugin {
             .appendQueryParameter("native_auth", handoff.requestId);
         if (handoff.invite != null) builder.appendQueryParameter("invite", handoff.invite);
         if (handoff.register) builder.appendQueryParameter("register", "1");
+        if (handoff.username != null) builder.appendQueryParameter("username", handoff.username);
+        if (handoff.displayName != null) builder.appendQueryParameter("display_name", handoff.displayName);
         Uri url = builder.build();
         String provider = CustomTabsClient.getPackageName(getContext(), null);
         handoff.inBrowser = true;
@@ -348,6 +357,17 @@ public class NativeAuthPlugin extends Plugin {
             }
         }).start();
         return true;
+    }
+
+    /** What the backend accepts for a name (trimmed, 1-255 chars), minus control characters. */
+    static String prefillName(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        if (trimmed.isEmpty() || trimmed.length() > 255) return null;
+        for (int i = 0; i < trimmed.length(); i++) {
+            if (Character.isISOControl(trimmed.charAt(i))) return null;
+        }
+        return trimmed;
     }
 
     private interface Report {
