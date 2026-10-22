@@ -12,8 +12,7 @@ import { registerPlugin } from '@capacitor/core';
  */
 export interface NativeAuthPlugin {
   /**
-   * Signs in to the active server. Shows the match code natively, then opens
-   * the browser sheet. Rejects with code `cancelled` if the user backs out.
+   * Signs in to the active server. Opens the browser sheet. Rejects with code `cancelled` if the user backs out.
    *
    * `auth` is the server's `AuthResponse`, passed through untouched.
    */

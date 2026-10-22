@@ -38,7 +38,6 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
 
     private struct Handoff {
         let requestId: String
-        let matchCode: String
         let verifier: String
     }
 
@@ -63,7 +62,8 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
             call.reject("No server is selected.")
             return
         }
-        run(base: base) { result in
+        // The user just tapped Sign in on this server's own page: nothing to confirm.
+        run(base: base, confirmHost: false) { result in
             switch result {
             case .success(let auth):
                 call.resolve(["auth": auth])
@@ -90,7 +90,7 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
               let origin = Self.httpsOrigin(raw)
         else { return }
 
-        run(base: origin) { [weak self] result in
+        run(base: origin, confirmHost: true) { [weak self] result in
             switch result {
             case .success(let auth):
                 self?.adopt(auth, for: origin)
@@ -132,7 +132,9 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
 
     // MARK: - The handoff
 
-    private func run(base: URL, completion: @escaping (Result<[String: Any], Failure>) -> Void) {
+    private func run(
+        base: URL, confirmHost: Bool, completion: @escaping (Result<[String: Any], Failure>) -> Void
+    ) {
         DispatchQueue.main.async {
             guard !self.busy else {
                 completion(.failure(.message("A sign-in is already in progress.")))
@@ -151,8 +153,7 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
                 case .failure(let failure):
                     done(.failure(failure))
                 case .success(let handoff):
-                    self.confirm(host: base.host ?? base.absoluteString, code: handoff.matchCode) { go in
-                        guard go else { return done(.failure(.cancelled)) }
+                    let proceed = {
                         self.openBrowser(base: base, handoff: handoff) { code in
                             switch code {
                             case .failure(let failure):
@@ -161,6 +162,10 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
                                 self.exchange(base: base, handoff: handoff, code: code, completion: done)
                             }
                         }
+                    }
+                    guard confirmHost else { return proceed() }
+                    self.confirm(host: base.host ?? base.absoluteString) { go in
+                        go ? proceed() : done(.failure(.cancelled))
                     }
                 }
             }
@@ -185,26 +190,21 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
                     "This server hasn't enabled app sign-in. Ask the admin to turn it on, or sign in with a password.")))
                 return
             }
-            guard status == 200,
-                  let requestId = json?["request_id"] as? String,
-                  let matchCode = json?["match_code"] as? String
-            else {
+            // `match_code` is deprecated and ignored: Authorize now asks for a step-up.
+            guard status == 200, let requestId = json?["request_id"] as? String else {
                 completion(.failure(.message("Couldn't start sign-in (\(status)).")))
                 return
             }
-            completion(.success(Handoff(requestId: requestId, matchCode: matchCode, verifier: verifier)))
+            completion(.success(Handoff(requestId: requestId, verifier: verifier)))
         }
     }
 
-    /// The auth sheet covers the app, so the code is shown here first, and
-    /// this is also the confirm a `hasht://signin` link must never skip.
-    private func confirm(host: String, code: String, completion: @escaping (Bool) -> Void) {
-        let spaced = code.enumerated()
-            .map { $0.offset > 0 && $0.offset % 4 == 0 ? " \($0.element)" : String($0.element) }
-            .joined()
+    /// The confirm a `hasht://signin` link must never skip: any page can send
+    /// one naming any host.
+    private func confirm(host: String, completion: @escaping (Bool) -> Void) {
         let alert = UIAlertController(
             title: "Sign in to \(host)?",
-            message: "Your browser will show a code. Only approve if it matches:\n\n\(spaced)",
+            message: "Your browser will open so you can sign in and approve.",
             preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in completion(false) })
         alert.addAction(UIAlertAction(title: "Continue", style: .default) { _ in completion(true) })

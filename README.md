@@ -63,8 +63,8 @@ Passwords work in the WebView. Passkeys use `NativeAuth` to open a browser
 sign-in session, since WebView passkey support requires fixed domain
 associations that cannot cover arbitrary self-hosted instances.
 
-The backend's native auth flow uses PKCE and a match code shown in a native
-alert. The verifier stays in native code. See `docs/NATIVE_SIGN_IN.md` in the
+The backend's native auth flow uses PKCE, and approving in the browser needs a
+passkey or password step-up. The verifier stays in native code. See `docs/NATIVE_SIGN_IN.md` in the
 chat repo for the protocol.
 
 Sign-in starts through `NativeAuth.signIn()` or a
