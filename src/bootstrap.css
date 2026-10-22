@@ -81,7 +81,7 @@ body::before {
   max-width: 440px;
   margin: 0 auto;
   padding: max(40px, calc(var(--hasht-safe-area-top, env(safe-area-inset-top)) + 24px)) 16px
-    max(24px, calc(var(--hasht-safe-area-bottom, env(safe-area-inset-bottom)) + 16px));
+    calc(max(24px, calc(var(--hasht-safe-area-bottom, env(safe-area-inset-bottom)) + 16px)) + var(--hasht-keyboard-inset, 0px));
 }
 
 [hidden] { display: none !important; }
