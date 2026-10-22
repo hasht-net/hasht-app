@@ -564,6 +564,28 @@ public class ServerConfigPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void openSecurityManagement(PluginCall call) {
+        String ticket = call.getString("ticket");
+        JSONObject active = activeServer(getContext());
+        if (ticket == null || !ticket.matches("[0-9a-fA-F]{64}") || active == null) {
+            call.reject("A server and valid management ticket are required.");
+            return;
+        }
+        Uri base = Uri.parse(active.optString("url"));
+        if (!"https".equals(base.getScheme())) { call.reject("A secure server is required."); return; }
+        Uri target = Uri.parse(originKey(base)).buildUpon().path("/")
+            .appendQueryParameter("security_management", "1").fragment("ticket=" + ticket).build();
+        getActivity().runOnUiThread(() -> {
+            try {
+                new androidx.browser.customtabs.CustomTabsIntent.Builder().build().launchUrl(getActivity(), target);
+                call.resolve();
+            } catch (android.content.ActivityNotFoundException error) {
+                call.reject("Install a browser to manage passkeys.");
+            }
+        });
+    }
+
+    @PluginMethod
     public void openSecuritySettings(PluginCall call) {
         String userId = call.getString("userId");
         JSONObject active = activeServer(getContext());
