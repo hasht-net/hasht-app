@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		7C5E0000000000000000B001 /* PushReadState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C5E0000000000000000A001 /* PushReadState.swift */; };
+		7C5E0000000000000000B002 /* PushReadState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C5E0000000000000000A001 /* PushReadState.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
@@ -68,6 +70,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		7C5E0000000000000000A001 /* PushReadState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushReadState.swift; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -177,6 +180,7 @@
 			isa = PBXGroup;
 			children = (
 				7A5E0000000000000000A001 /* WebPush.swift */,
+				7C5E0000000000000000A001 /* PushReadState.swift */,
 				7B5E0000000000000000A006 /* ShareSession.swift */,
 			);
 			path = Shared;
@@ -353,6 +357,7 @@
 				7B5E0000000000000000B006 /* ShareSession.swift in Sources */,
 				7B5E0000000000000000B007 /* ShareSessionSync.swift in Sources */,
 				7A5E0000000000000000B001 /* WebPush.swift in Sources */,
+				7C5E0000000000000000B001 /* PushReadState.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -362,6 +367,7 @@
 			files = (
 				7A5E0000000000000000B004 /* NotificationService.swift in Sources */,
 				7A5E0000000000000000B002 /* WebPush.swift in Sources */,
+				7C5E0000000000000000B002 /* PushReadState.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

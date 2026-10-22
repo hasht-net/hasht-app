@@ -17,6 +17,7 @@ struct PushRegistration: Codable, Equatable {
     /// P-256 private key, raw representation.
     let privateKey: Data
     let auth: Data
+    var created: Double? = nil
     var accountKey: String? = nil
     var key: String { accountKey ?? origin }
 
@@ -83,10 +84,12 @@ struct PushMessage {
     /// A path on `origin`.
     let path: String?
     let tag: String?
-    /// `message`, `update` or `remove`. Older backends send none: a message.
+    /// Message, quiet catch-up, edit, exact removal, or channel read boundary.
     let kind: String
     let ids: [String]
+    var created: Double? = nil
     var accountKey: String? = nil
+    var readThrough: Double? = nil
     var key: String { accountKey ?? origin }
 
     var absoluteURL: String? {
@@ -108,7 +111,9 @@ struct PushMessage {
                 path: json["url"] as? String,
                 tag: json["tag"] as? String,
                 kind: json["kind"] as? String ?? "message",
-                ids: (json["ids"] as? [Any])?.map { "\($0)" } ?? [], accountKey: reg.accountKey)
+                ids: (json["ids"] as? [Any])?.map { "\($0)" } ?? [],
+                created: (json["native_order"] as? [String: Any])?["created"] as? Double, accountKey: reg.accountKey,
+                readThrough: json["read_through"] as? Double)
         }
         return nil
     }
@@ -118,6 +123,7 @@ struct PushMessage {
         var info: [String: Any] = ["origin": origin, "accountKey": key, "kind": kind, "ids": ids]
         if let url = absoluteURL { info["url"] = url }
         if let tag = tag { info["tag"] = tag }
+        if let created = created { info["created"] = created }
         return info
     }
 }

@@ -15,8 +15,6 @@ import java.util.Set;
 final class PushOrder {
     static final long TTL = 24 * 60 * 60 * 1000L;
     static final long RETENTION = TTL + 2 * 60 * 60 * 1000L;
-    static final int MAX_CHANNELS = 2048;
-    static final int MAX_ORIGIN_CHANNELS = 128;
     static final int MAX_TOMBSTONES = 32;
 
     static final class Entry {
@@ -35,48 +33,60 @@ final class PushOrder {
         final Map<String, Entry> channels = new HashMap<>();
         final Map<String, Long> cutoffs = new HashMap<>();
         final Map<String, Long> recovery = new HashMap<>();
+        final Map<String, Long> reads = new HashMap<>();
+        final Set<String> dirty = new HashSet<>();
+        long lastPruned;
+        boolean metadataDirty = true;
         long generation;
 
         private static String key(String origin, String tag) { return origin + " " + tag; }
 
         void prune(long now) {
-            channels.values().removeIf(e -> e.expires < now);
-            cutoffs.values().removeIf(at -> at + RETENTION < now);
+            channels.values().removeIf(e -> { if (e.expires >= now) return false; dirty.add(key(e.origin, e.tag)); return true; });
+            if (cutoffs.values().removeIf(at -> at + RETENTION < now)) metadataDirty = true;
+        }
+
+        /** A batched recall must tombstone each independent message identity. */
+        boolean acceptNotification(String origin, String tag, String kind, List<String> ids,
+                                   long created, long version, long issued, long now) {
+            if (!"remove".equals(kind) || ids.size() <= 1) {
+                return accept(origin, tag, kind, ids, created, version, issued, now);
+            }
+            if (ids.size() > 32) return false;
+            String channelTag = tag.split("/message:", 2)[0];
+            boolean accepted = false;
+            long before = generation;
+            for (String id : ids) {
+                accepted |= accept(origin, channelTag + "/message:" + id, kind,
+                    java.util.Collections.singletonList(id), 0, 0, issued, now);
+                if (generation != before) return false;
+            }
+            return accepted;
         }
 
         /** False means an expired, duplicate, withdrawn or superseded event. */
         boolean accept(String origin, String tag, String kind, List<String> ids,
                        long created, long version, long issued, long now) {
-            prune(now);
+            if (now - lastPruned > 60_000) { prune(now); lastPruned = now; }
             if (origin.length() > 1024 || tag.length() > 256
                 || ids.size() > 128 || ids.stream().anyMatch(id -> id.length() > 64)) return false;
             boolean ordered = created > 0 && version >= created && issued > 0 && !ids.isEmpty();
             if (issued > 0 && (issued + TTL < now || issued > now + 5 * 60 * 1000L)) return false;
             if (cutoffs.containsKey(origin) && (!ordered || issued <= cutoffs.get(origin))) return false;
+            String channelTag = tag.split("/message:", 2)[0];
+            if (created > 0 && created <= reads.getOrDefault(key(origin, channelTag), 0L)) return false;
             String key = key(origin, tag);
             Entry entry = channels.get(key);
             if (entry == null) {
-                long originChannels = channels.values().stream().filter(e -> origin.equals(e.origin)).count();
-                if (originChannels >= MAX_ORIGIN_CHANNELS) {
-                    overflow(java.util.Collections.singletonList(origin), now);
-                    return false;
-                }
-                if (channels.size() >= MAX_CHANNELS) {
-                    Set<String> affected = new HashSet<>();
-                    for (Entry e : channels.values()) affected.add(e.origin);
-                    affected.add(origin);
-                    overflow(new java.util.ArrayList<>(affected), now);
-                    return false;
-                }
                 entry = new Entry(); entry.origin = origin; entry.tag = tag;
                 channels.put(key, entry);
             }
+            dirty.add(key);
             entry.expires = Math.max(entry.expires, (issued > 0 ? issued : now) + RETENTION);
-            if (issued > 0 && issued <= entry.cleared) return false;
             String id = ids.isEmpty() ? "" : ids.get(ids.size() - 1);
             if ("remove".equals(kind)) {
                 if (ids.isEmpty()) {
-                    entry.cleared = now;
+                    entry.cleared = 0;
                     entry.removed = true;
                     return true;
                 }
@@ -119,22 +129,48 @@ final class PushOrder {
         }
 
         void clear(String origin, String tag, long now) {
+            for (Entry child : channels.values()) {
+                if (origin.equals(child.origin) && child.tag.startsWith(tag + "/message:")) {
+                    child.removed = true;
+                    child.cleared = 0;
+                    dirty.add(key(child.origin, child.tag));
+                    child.expires = now + RETENTION;
+                }
+            }
             Entry entry = channels.get(key(origin, tag));
+            dirty.add(key(origin, tag));
             if (entry != null) {
                 entry.removed = true;
-                entry.cleared = now;
+                entry.cleared = 0;
                 entry.expires = now + RETENTION;
             } else {
                 accept(origin, tag, "remove", java.util.Collections.emptyList(), 0, 0, 0, now);
             }
         }
 
+        void read(String origin, String tag, long through) {
+            if (through <= 0) return;
+            String k = key(origin, tag);
+            if (through <= reads.getOrDefault(k, 0L)) return;
+            reads.put(k, through);
+            metadataDirty = true;
+        }
+
+        void compactReads() {
+            channels.values().removeIf(e -> {
+                boolean covered = e.created > 0 && e.created <= reads.getOrDefault(key(e.origin, e.tag.split("/message:", 2)[0]), 0L);
+                if (covered) dirty.add(key(e.origin, e.tag));
+                return covered;
+            });
+        }
+
         void overflow(List<String> origins, long now) {
+            metadataDirty = true;
             generation++;
             for (String origin : origins) {
                 cutoffs.put(origin, now);
                 recovery.put(origin, generation);
-                channels.values().removeIf(e -> origin.equals(e.origin));
+                channels.values().removeIf(e -> { if (!origin.equals(e.origin)) return false; dirty.add(key(e.origin,e.tag)); return true; });
             }
         }
 
@@ -150,12 +186,15 @@ final class PushOrder {
 
         boolean complete(String origin, long expected) {
             if (expected == 0 || expected != recoveryGeneration(origin)) return false;
+            metadataDirty = true;
             recovery.remove(origin);
             return true;
         }
 
         void forget(String origin) {
-            channels.values().removeIf(e -> origin.equals(e.origin));
+            metadataDirty = true;
+            channels.values().removeIf(e -> { if (!origin.equals(e.origin)) return false; dirty.add(key(e.origin,e.tag)); return true; });
+            reads.keySet().removeIf(k -> k.startsWith(origin + " "));
             cutoffs.remove(origin);
             recovery.remove(origin);
         }
@@ -163,7 +202,7 @@ final class PushOrder {
         byte[] encode() throws IOException {
             ByteArrayOutputStream buffer = new ByteArrayOutputStream();
             try (DataOutputStream out = new DataOutputStream(buffer)) {
-                out.writeInt(1); out.writeLong(generation); out.writeInt(channels.size());
+                out.writeInt(2); out.writeLong(generation); out.writeInt(channels.size());
                 for (Entry e : channels.values()) {
                     out.writeUTF(e.origin); out.writeUTF(e.tag); out.writeUTF(e.id);
                     out.writeLong(e.created); out.writeLong(e.version); out.writeLong(e.expires);
@@ -171,7 +210,7 @@ final class PushOrder {
                     out.writeInt(e.tombstones.size());
                     for (String id : e.tombstones) out.writeUTF(id);
                 }
-                writeMap(out, cutoffs); writeMap(out, recovery);
+                writeMap(out, cutoffs); writeMap(out, recovery); writeMap(out, reads);
             }
             if (buffer.size() > 16 * 1024 * 1024) throw new IOException("oversized push state");
             return buffer.toByteArray();
@@ -181,9 +220,10 @@ final class PushOrder {
             if (bytes.length > 16 * 1024 * 1024) throw new IOException("oversized push state");
             State state = new State();
             try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes))) {
-                if (in.readInt() != 1) throw new IOException("unsupported push state");
+                int format = in.readInt();
+                if (format != 1 && format != 2) throw new IOException("unsupported push state");
                 state.generation = in.readLong();
-                int count = count(in, MAX_CHANNELS);
+                int count = count(in, 1_000_000);
                 for (int i = 0; i < count; i++) {
                     Entry e = new Entry();
                     e.origin = in.readUTF(); e.tag = in.readUTF(); e.id = in.readUTF();
@@ -194,6 +234,7 @@ final class PushOrder {
                     state.channels.put(key(e.origin, e.tag), e);
                 }
                 readMap(in, state.cutoffs); readMap(in, state.recovery);
+                if (format >= 2) readMap(in, state.reads);
                 if (in.available() != 0) throw new IOException("trailing push state");
             }
             return state;
@@ -209,7 +250,7 @@ final class PushOrder {
             for (Map.Entry<String, Long> e : values.entrySet()) { out.writeUTF(e.getKey()); out.writeLong(e.getValue()); }
         }
         private static void readMap(DataInputStream in, Map<String, Long> values) throws IOException {
-            int count = count(in, 4096);
+            int count = count(in, 1_000_000);
             for (int i = 0; i < count; i++) values.put(in.readUTF(), in.readLong());
         }
     }

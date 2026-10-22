@@ -20,6 +20,82 @@ public class PushOrderTest {
         return PushOrder.State.decode(state.encode());
     }
 
+    @Test public void batchedRecallBeforeAlertsProtectsEveryIdentityAcrossRestart() throws Exception {
+        PushOrder.State state = new PushOrder.State();
+        assertTrue(state.acceptNotification(ORIGIN, TAG + "/message:" + B, "remove", Arrays.asList(A, B), 0, 0, NOW, NOW));
+        state = restart(state);
+        assertFalse(state.acceptNotification(ORIGIN, TAG + "/message:" + A, "message", Collections.singletonList(A), 1, 1, NOW, NOW));
+        assertFalse(state.acceptNotification(ORIGIN, TAG + "/message:" + B, "message", Collections.singletonList(B), 2, 2, NOW, NOW));
+        assertTrue(state.acceptNotification(ORIGIN, TAG + "/message:new", "message", Collections.singletonList("new"), 3, 3, NOW, NOW));
+    }
+
+    @Test public void individualMessagesSurviveReorderingAndChannelClear() throws Exception {
+        PushOrder.State state = new PushOrder.State();
+        String first = TAG + "/message:" + A;
+        String second = TAG + "/message:" + B;
+        assertTrue(state.accept(ORIGIN, second, "message", Collections.singletonList(B), 2, 2, NOW, NOW));
+        assertTrue(state.accept(ORIGIN, first, "message", Collections.singletonList(A), 1, 1, NOW, NOW));
+        assertTrue(state.accept(ORIGIN, first, "remove", Collections.singletonList(A), 1, 1, NOW, NOW));
+        state = restart(state);
+        assertFalse(state.accept(ORIGIN, first, "message", Collections.singletonList(A), 1, 1, NOW, NOW));
+        assertTrue(state.accept(ORIGIN, second, "update", Collections.singletonList(B), 2, 3, NOW, NOW));
+        state.clear(ORIGIN, TAG, NOW);
+        state = restart(state);
+        assertFalse(state.accept(ORIGIN, second, "update", Collections.singletonList(B), 2, 4, NOW, NOW));
+        assertTrue(state.accept(ORIGIN, TAG + "/message:new", "message", Collections.singletonList("new"), 3, 3, NOW, NOW));
+        assertFalse(state.accept(ORIGIN, TAG + "/message:new", "message", Collections.singletonList("new"), 3, 3, NOW + 1, NOW + 1));
+    }
+
+    @Test public void busyDayDoesNotWipeAccountAndReadBoundarySurvivesRestart() throws Exception {
+        PushOrder.State state = new PushOrder.State();
+        for (int i = 1; i <= 5000; i++) assertTrue(state.accept(ORIGIN, TAG + "/message:" + i,
+            "message", Collections.singletonList("" + i), i, i, NOW, NOW));
+        assertEquals(5000, state.channels.size());
+        assertEquals(0, state.recoveryGeneration(ORIGIN));
+        state.read(ORIGIN, TAG, 4000);
+        state.read(ORIGIN, TAG, 10); // stale reconciliation must not rewind.
+        state.compactReads();
+        assertEquals(1000, state.channels.size());
+        state = restart(state);
+        assertFalse(state.accept(ORIGIN, TAG + "/message:unseen", "message", Collections.singletonList("unseen"), 4000, 4000, NOW, NOW));
+        assertTrue(state.accept(ORIGIN, TAG + "/message:fresh", "message", Collections.singletonList("fresh"), 5001, 5001, NOW, NOW));
+        assertTrue(state.accept("other", TAG + "/message:unseen", "message", Collections.singletonList("unseen"), 4000, 4000, NOW, NOW));
+    }
+
+    @Test public void localClearWithFastClockDoesNotSuppressUnseenMessages() throws Exception {
+        PushOrder.State state = new PushOrder.State();
+        state.clear(ORIGIN, TAG, NOW + 300_000);
+        state = restart(state);
+        assertTrue(state.accept(ORIGIN, TAG + "/message:fresh", "message", Collections.singletonList("fresh"), 100, 100, NOW, NOW + 300_000));
+    }
+
+    @Test public void eventWritesOnlyChangedIdentityAndReconciliationCompactsInOneBatch() throws Exception {
+        PushOrder.State state = new PushOrder.State();
+        for (int i = 1; i <= 2000; i++) state.accept(ORIGIN, TAG + "/message:" + i,
+            "message", Collections.singletonList("" + i), i, i, NOW, NOW);
+        state.dirty.clear(); state.metadataDirty = false;
+        assertTrue(state.accept(ORIGIN, TAG + "/message:2001", "message", Collections.singletonList("2001"), 2001, 2001, NOW, NOW));
+        assertEquals(Collections.singleton(ORIGIN + " " + TAG + "/message:2001"), state.dirty);
+        assertFalse(state.metadataDirty);
+        state.dirty.clear(); state.read(ORIGIN, TAG, 1000); state.read(ORIGIN, "channel:b", 10);
+        state.compactReads();
+        assertTrue(state.metadataDirty); assertEquals(1000, state.dirty.size());
+        assertEquals(1001, state.channels.size());
+        PushOrder.State restored = restart(state);
+        assertEquals(state.reads, restored.reads);
+        assertEquals(state.channels.size(), restored.channels.size());
+    }
+
+    @Test public void versionOneSnapshotStillDecodes() throws Exception {
+        PushOrder.State state = new PushOrder.State(); event(state, "message", A, 1, 1);
+        byte[] v2 = state.encode();
+        byte[] v1 = java.util.Arrays.copyOf(v2, v2.length - 4); // v1 has no read-map count.
+        v1[3] = 1;
+        PushOrder.State restored = PushOrder.State.decode(v1);
+        assertEquals(1, restored.channels.size()); assertTrue(restored.reads.isEmpty());
+        assertFalse(event(restored, "message", A, 1, 1));
+    }
+
     @Test public void newerChannelMessageWinsAcrossRestartAndOutOfOrderEdits() throws Exception {
         PushOrder.State state = new PushOrder.State();
         assertTrue(event(state, "message", A, 1, 1));
@@ -97,48 +173,8 @@ public class PushOrderTest {
         assertFalse(state.cutoffs.containsKey(ORIGIN));
     }
 
-    @Test public void perOriginCapacityProtectsOtherInstancesAndDoesNotEvictTombstones() throws Exception {
-        PushOrder.State state = new PushOrder.State();
-        assertTrue(state.accept("https://other.test", TAG, "message", Collections.singletonList(A), 1, 1, NOW, NOW));
-        for (int i = 0; i < PushOrder.MAX_ORIGIN_CHANNELS; i++) {
-            assertTrue(state.accept(ORIGIN, "channel:" + i, "remove", Collections.singletonList(A), 1, 1, NOW, NOW));
-        }
-        assertFalse(state.accept(ORIGIN, "channel:overflow", "message", Collections.singletonList(B), 2, 2, NOW, NOW));
-        assertEquals(1, state.channels.size());
-        assertTrue(state.recoveryGeneration(ORIGIN) > 0);
-        assertEquals(0, state.recoveryGeneration("https://other.test"));
-        assertFalse(state.accept(ORIGIN, "channel:0", "message", Collections.singletonList(A), 1, 1, NOW, NOW));
-        assertEquals(1, restart(state).channels.size());
-    }
 
-    @Test public void unrelatedOverflowDoesNotClearFreshAlertsForAnOriginStillRecovering() throws Exception {
-        String other = "https://other.test";
-        PushOrder.State state = new PushOrder.State();
-        state.overflow(Collections.singletonList(other), NOW);
-        long otherGeneration = state.recoveryGeneration(other);
-        assertTrue(state.accept(other, TAG, "message", Collections.singletonList(B), 2, 2, NOW + 1, NOW + 1));
-        for (int i = 0; i < PushOrder.MAX_ORIGIN_CHANNELS; i++) {
-            assertTrue(state.accept(ORIGIN, "channel:" + i, "message", Collections.singletonList(A), 1, 1, NOW, NOW + 1));
-        }
-        assertFalse(state.accept(ORIGIN, "channel:overflow", "message", Collections.singletonList(A), 1, 1, NOW + 2, NOW + 2));
-        state = restart(state);
-        // Production uses this exact affected set for notification cancellation.
-        assertEquals(Collections.singleton(ORIGIN), state.affectedOrigins());
-        assertEquals(otherGeneration, state.recoveryGeneration(other));
-        assertTrue(state.accept(other, TAG, "update", Collections.singletonList(B), 2, 3, NOW + 3, NOW + 3));
-    }
 
-    @Test public void globalCapacityRecoversContributingOriginsAndFreesSpace() {
-        PushOrder.State state = new PushOrder.State();
-        for (int i = 0; i < PushOrder.MAX_CHANNELS; i++) {
-            assertTrue(state.accept("https://instance" + (i / PushOrder.MAX_ORIGIN_CHANNELS) + ".test",
-                "channel:" + i, "message", Collections.singletonList(A), 1, 1, NOW, NOW));
-        }
-        assertFalse(state.accept(ORIGIN, TAG, "message", Collections.singletonList(B), 2, 2, NOW, NOW));
-        assertTrue(state.channels.isEmpty());
-        assertTrue(state.recoveryGeneration("https://instance0.test") > 0);
-        assertTrue(state.accept(ORIGIN, TAG, "message", Collections.singletonList(B), 2, 2, NOW + 1, NOW + 1));
-    }
 
     @Test public void ttlAndLocalReadCutoffPreventResurrectionAfterPruning() throws Exception {
         PushOrder.State state = new PushOrder.State();
@@ -147,6 +183,7 @@ public class PushOrderTest {
         assertFalse(event(restart(state), "update", A, 1, 5));
         long later = NOW + PushOrder.RETENTION + 1;
         assertFalse(state.accept(ORIGIN, TAG, "message", Collections.singletonList(A), 1, 1, NOW, later));
+        state.prune(later);
         assertTrue(state.channels.isEmpty());
         assertTrue(state.accept(ORIGIN, TAG, "message", Collections.singletonList(B), 2, 2, later, later));
     }

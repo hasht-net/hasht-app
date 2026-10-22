@@ -22,9 +22,8 @@ import org.json.JSONObject;
 /**
  * Turns a decrypted push into a notification, or withdraws one.
  *
- * Notifications are keyed by tag `<origin> <payload tag>`, so a newer message
- * in a channel replaces the older one in place, and two instances never
- * collide.
+ * Notifications are keyed by account and payload tag. New backends provide
+ * one tag per message; older backends replace the channel notification.
  */
 final class PushNotifications {
     private PushNotifications() {}
@@ -38,6 +37,7 @@ final class PushNotifications {
     private static final String ORDER_PREFS = "net.hasht.app.push.order";
     private static final String ORDER_KEY = "state";
     private static PushOrder.State orderState;
+    private static PushOrderStore orderStore;
 
     /** A decrypted payload: `{title, body, url, tag, icon, kind, ids}`. */
     static final class Message {
@@ -48,12 +48,13 @@ final class PushNotifications {
         /** A path on `origin`. */
         final String url;
         final String tag;
-        /** `message`, `update` or `remove`; older backends send none. */
+        /** Message, quiet catch-up, edit, exact removal, or channel read boundary. */
         final String kind;
         final List<String> ids;
         final long created;
         final long version;
         final long issued;
+        final long readThrough;
 
         Message(String origin, JSONObject json) { this(origin, null, json); }
 
@@ -73,6 +74,7 @@ final class PushNotifications {
             this.created = order == null ? 0 : order.optLong("created", 0);
             this.version = order == null ? 0 : order.optLong("version", 0);
             this.issued = json.optLong("issued_at", 0);
+            this.readThrough = json.optLong("read_through", 0);
         }
 
         String notificationTag() {
@@ -106,9 +108,14 @@ final class PushNotifications {
             if (reg.scope().equals(message.origin) && reg.id.equals(message.registrationId)) registered = true;
         }
         if (!registered) return;
+        if (!java.util.Arrays.asList("message", "update", "remove", "read", "catch_up").contains(message.kind)) return;
+        if ("read".equals(message.kind)) {
+            reconcileRead(context, message.origin, message.tag, message.readThrough);
+            return;
+        }
         PushOrder.State state = state(context);
         long generation = state.generation;
-        if (!state.accept(message.origin, message.tag, message.kind, message.ids,
+        if (!state.acceptNotification(message.origin, message.tag, message.kind, message.ids,
                 message.created, message.version, message.issued, System.currentTimeMillis())) {
             if (save(context)) {
                 if (generation != state.generation) {
@@ -140,21 +147,25 @@ final class PushNotifications {
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         Bundle extras = new Bundle();
+        extras.putLong("net.hasht.app.push.created", message.created);
+        extras.putString("net.hasht.app.push.tag", message.tag);
         extras.putString(EXTRA_ORIGIN, message.origin);
         extras.putString(EXTRA_IDS, TextUtils.join(",", message.ids));
 
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL_ID)
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(context, "catch_up".equals(message.kind) ? "message_catch_up" : CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_message)
             .setContentTitle(message.title)
             .setContentText(message.body)
             .setStyle(new NotificationCompat.BigTextStyle().bigText(message.body))
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority("catch_up".equals(message.kind) ? NotificationCompat.PRIORITY_LOW : NotificationCompat.PRIORITY_HIGH)
+            .setGroup(message.origin + " " + message.tag.split("/message:", 2)[0])
             .setAutoCancel(true)
             .setContentIntent(pending)
             .addExtras(extras);
         // An edit replaces the text without a second alert.
         if ("update".equals(message.kind)) builder.setOnlyAlertOnce(true);
+        if ("catch_up".equals(message.kind)) builder.setSilent(true);
 
         try {
             NotificationManagerCompat.from(context).notify(message.notificationTag(), ID, builder.build());
@@ -173,7 +184,11 @@ final class PushNotifications {
         for (StatusBarNotification shown : manager.getActiveNotifications()) {
             Bundle extras = shown.getNotification().extras;
             if (!origin.equals(extras.getString(EXTRA_ORIGIN))) continue;
-            if (tag != null && !(origin + " " + tag).equals(shown.getTag())) continue;
+            if (tag != null) {
+                String expected = origin + " " + tag.split("/message:", 2)[0];
+                String shownTag = shown.getTag();
+                if (shownTag == null || !expected.equals(shownTag.split("/message:", 2)[0])) continue;
+            }
             if (!ids.isEmpty()) {
                 String shownIds = extras.getString(EXTRA_IDS, "");
                 if (Collections.disjoint(Arrays.asList(shownIds.split(",")), ids)) continue;
@@ -182,7 +197,47 @@ final class PushNotifications {
         }
     }
 
-    static synchronized void clearChannel(Context context, String origin, String tag) {
+    static synchronized void reconcileReads(Context context, String origin, org.json.JSONArray reads) {
+        java.util.Map<String, Long> markers = new java.util.HashMap<>();
+        for (int i = 0; i < reads.length(); i++) {
+            JSONObject read = reads.optJSONObject(i);
+            if (read == null) continue;
+            String tag = read.optString("tag", ""); long through = read.optLong("through", 0);
+            if (!tag.startsWith("channel:") || tag.length() > 256 || through <= 0) continue;
+            markers.merge(tag, through, Math::max);
+            state(context).read(origin, tag, through);
+        }
+        state(context).compactReads();
+        if (!save(context)) throw new IllegalStateException("could not store notification read state");
+        cancelRead(context, origin, markers);
+    }
+
+    private static boolean reconcileRead(Context context, String origin, String tag, long through) {
+        if (!tag.startsWith("channel:") || tag.contains("/message:") || through <= 0) return false;
+        state(context).read(origin, tag, through);
+        state(context).compactReads();
+        if (!save(context)) return false;
+        cancelRead(context, origin, Collections.singletonMap(tag, through));
+        return true;
+    }
+
+    private static void cancelRead(Context context, String origin, java.util.Map<String, Long> markers) {
+        NotificationManager manager = context.getSystemService(NotificationManager.class);
+        if (manager == null) return;
+        for (StatusBarNotification shown : manager.getActiveNotifications()) {
+            Bundle extras = shown.getNotification().extras;
+            if (!origin.equals(extras.getString(EXTRA_ORIGIN))) continue;
+            long created = extras.getLong("net.hasht.app.push.created", 0);
+            String tag = extras.getString("net.hasht.app.push.tag", "").split("/message:", 2)[0];
+            if (created > 0 && created <= markers.getOrDefault(tag, 0L)) manager.cancel(shown.getTag(), shown.getId());
+        }
+    }
+
+    static synchronized void clearChannel(Context context, String origin, String tag, long through) {
+        if (through > 0) {
+            if (!reconcileRead(context, origin, tag, through)) throw new IllegalStateException("could not store notification read state");
+            return;
+        }
         state(context).clear(origin, tag, System.currentTimeMillis());
         if (!save(context)) throw new IllegalStateException("could not store notification read state");
         remove(context, origin, tag, Collections.emptyList());
@@ -214,30 +269,38 @@ final class PushNotifications {
         if (!state.complete(origin, generation)) return;
         if (!save(context)) {
             state.recovery.put(origin, generation);
-            return;
+            state.metadataDirty = true;
+            throw new IllegalStateException("could not store notification recovery state");
         }
         NotificationManagerCompat.from(context).cancel(origin + " " + RECOVERY_TAG, ID);
     }
 
     private static PushOrder.State state(Context context) {
         if (orderState != null) return orderState;
-        String encoded = context.getSharedPreferences(ORDER_PREFS, Context.MODE_PRIVATE).getString(ORDER_KEY, null);
+        orderStore = new PushOrderStore(context.getApplicationContext());
         try {
-            orderState = encoded == null ? new PushOrder.State() : PushOrder.State.decode(PushStore.unb64(encoded));
-        } catch (Exception corrupt) {
-            orderState = new PushOrder.State();
-            List<String> origins = new ArrayList<>();
-            for (PushStore.Registration reg : PushStore.load(context)) origins.add(reg.scope());
-            orderState.overflow(origins, System.currentTimeMillis());
+            if (orderStore.initialized()) orderState = orderStore.load();
+            else {
+                String encoded = context.getSharedPreferences(ORDER_PREFS, Context.MODE_PRIVATE).getString(ORDER_KEY, null);
+                orderState = encoded == null ? new PushOrder.State() : PushOrder.State.decode(PushStore.unb64(encoded));
+                // Legacy device-clock cutoffs are not authoritative server read boundaries.
+                for (PushOrder.Entry entry : orderState.channels.values()) entry.cleared = 0;
+                orderState.dirty.addAll(orderState.channels.keySet());
+                orderStore.save(orderState);
+                context.getSharedPreferences(ORDER_PREFS, Context.MODE_PRIVATE).edit().remove(ORDER_KEY).apply();
+            }
+        } catch (Exception failure) {
+            orderState = null;
+            throw new IllegalStateException("could not load notification read state", failure);
         }
         return orderState;
     }
 
     private static boolean save(Context context) {
-        try {
-            return context.getSharedPreferences(ORDER_PREFS, Context.MODE_PRIVATE).edit()
-                .putString(ORDER_KEY, PushStore.b64(orderState.encode())).commit();
-        } catch (Exception unavailable) {
+        try { orderStore.save(orderState); return true; }
+        catch (Exception unavailable) {
+            // Never continue with memory newer than durable state after a failed transaction.
+            orderState = null;
             return false;
         }
     }
@@ -255,7 +318,10 @@ final class PushNotifications {
     private static void ensureChannel(Context context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationManager manager = context.getSystemService(NotificationManager.class);
-        if (manager == null || manager.getNotificationChannel(CHANNEL_ID) != null) return;
+        if (manager == null) return;
+        manager.createNotificationChannel(new NotificationChannel("message_catch_up",
+            "Messages received while away", NotificationManager.IMPORTANCE_LOW));
+        if (manager.getNotificationChannel(CHANNEL_ID) != null) return;
         manager.createNotificationChannel(new NotificationChannel(
             CHANNEL_ID, context.getString(R.string.notification_channel_messages),
             NotificationManager.IMPORTANCE_HIGH));

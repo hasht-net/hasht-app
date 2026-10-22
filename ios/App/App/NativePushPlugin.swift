@@ -21,6 +21,7 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "register", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "unregister", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "reconcileReads", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clearChannel", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "openSettings", returnType: CAPPluginReturnPromise)
     ]
@@ -133,8 +134,33 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
         }
         Task {
             if let origin = await pageOrigin() {
-                Self.removeDelivered(origin: origin, tag: tag, ids: []) {}
+                do {
+                    if let through = call.getDouble("through") {
+                        try PushReadState.required().record(account: origin, reads: [tag: through])
+                        Self.repairDelivered(origin: origin) {}
+                    } else {
+                        Self.removeDelivered(origin: origin, tag: tag, ids: []) {}
+                    }
+                } catch { call.reject("Could not persist notification read state"); return }
             }
+            call.resolve()
+        }
+    }
+
+    /// Repair missed silent pushes using an authenticated read snapshot.
+    @objc func reconcileReads(_ call: CAPPluginCall) {
+        let reads = call.getArray("reads", JSObject.self) ?? []
+        Task {
+            guard let origin = await pageOrigin() else { call.resolve(); return }
+            var boundaries: [String: Double] = [:]
+            for read in reads {
+                if let tag = read["tag"] as? String, let through = read["through"] as? Double {
+                    boundaries[tag] = max(boundaries[tag] ?? 0, through)
+                }
+            }
+            do { try PushReadState.required().record(account: origin, reads: boundaries) }
+            catch { call.reject("Could not persist notification read state"); return }
+            Self.repairDelivered(origin: origin) {}
             call.resolve()
         }
     }
@@ -148,13 +174,14 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
         let gone = regs.filter { $0.key == origin }
         regs.removeAll { $0.key == origin }
         PushKeychain.save(regs)
+        try? PushReadState.required().forget(account: origin)
         for reg in gone {
             _ = try? await relayRequest("DELETE", "\(reg.relayUrl)/v1/register/\(reg.id)", body: nil)
         }
         Self.removeDelivered(origin: origin, tag: nil, ids: []) {}
     }
 
-    /// A background push from the relay: today only `kind: "remove"`, which
+    /// A background read/remove control from the relay, which
     /// withdraws a notification the user dealt with elsewhere. iOS throttles
     /// these and never delivers them to a force-quit app, so it's best effort.
     static func handleBackgroundPush(
@@ -162,13 +189,40 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
     ) {
         guard let enc = userInfo["enc"] as? String,
               let message = PushMessage.open(enc: enc, registrations: PushKeychain.load()),
-              message.kind == "remove"
+              ["remove", "read"].contains(message.kind)
         else {
             completion(.noData)
             return
         }
-        removeDelivered(origin: message.key, tag: message.tag, ids: message.ids) {
-            completion(.newData)
+        do {
+            if message.kind == "read", let tag = message.tag, let through = message.readThrough {
+                try PushReadState.required().record(account: message.key, reads: [tag: through])
+                repairDelivered(origin: message.key) { completion(.newData) }
+            } else if message.kind == "remove" {
+                try PushReadState.required().record(account: message.key, removed: message.ids)
+                removeDelivered(origin: message.key, tag: message.tag, ids: message.ids) { completion(.newData) }
+            } else { completion(.noData) }
+        } catch { completion(.failed) }
+    }
+
+    static func covered(_ info: [AnyHashable: Any]) -> Bool {
+        guard let account = info["accountKey"] as? String ?? info["origin"] as? String else { return false }
+        return (try? PushReadState.shared?.suppresses(account: account, tag: info["tag"] as? String,
+            ids: info["ids"] as? [String] ?? [], created: info["created"] as? Double)) ?? false
+    }
+
+    static func repairDelivered(origin: String, completion: @escaping () -> Void) {
+        let center = UNUserNotificationCenter.current()
+        center.getDeliveredNotifications { delivered in
+            let snapshot = try? PushReadState.shared?.snapshot(account: origin)
+            let doomed = delivered.filter {
+                let info = $0.request.content.userInfo
+                return (info["accountKey"] as? String ?? info["origin"] as? String) == origin &&
+                    (snapshot?.suppresses(tag: info["tag"] as? String, ids: info["ids"] as? [String] ?? [],
+                        created: info["created"] as? Double) ?? false)
+            }
+            center.removeDeliveredNotifications(withIdentifiers: doomed.map { $0.request.identifier })
+            completion()
         }
     }
 
@@ -180,7 +234,12 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
             let doomed = delivered.filter { note in
                 let info = note.request.content.userInfo
                 guard (info["accountKey"] as? String ?? info["origin"] as? String) == origin else { return false }
-                if let tag = tag, info["tag"] as? String != tag { return false }
+                if let tag = tag {
+                    let shownTag = info["tag"] as? String ?? ""
+                    let channelTag = tag.components(separatedBy: "/message:").first ?? tag
+                    let shownChannel = shownTag.components(separatedBy: "/message:").first ?? shownTag
+                    if channelTag != shownChannel { return false }
+                }
                 if ids.isEmpty { return true }
                 return !Set(info["ids"] as? [String] ?? []).isDisjoint(with: ids)
             }
@@ -195,10 +254,12 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
     /// whose page already shows the message. Another instance's still shows.
     public func willPresent(notification: UNNotification) -> UNNotificationPresentationOptions {
         let info = notification.request.content.userInfo
+        if Self.covered(info) { return [] }
         let origin = info["accountKey"] as? String ?? info["origin"] as? String
         if UIApplication.shared.applicationState == .active, origin != nil, origin == activeOrigin() {
             return []
         }
+        if info["kind"] as? String == "catch_up" { return [.list] }
         return [.banner, .list, .sound]
     }
 

@@ -52,6 +52,16 @@ public class NativePushPlugin extends Plugin {
     // --- From the page
 
     @PluginMethod
+    public void reconcileReads(PluginCall call) {
+        String origin = activeAccountKey(getContext());
+        org.json.JSONArray reads = call.getArray("reads", new com.getcapacitor.JSArray());
+        executor.execute(() -> {
+            try { if (origin != null) PushNotifications.reconcileReads(getContext(), origin, reads); call.resolve(); }
+            catch (IllegalStateException failure) { call.reject(failure.getMessage(), "storage", failure); }
+        });
+    }
+
+    @PluginMethod
     public void openSettings(PluginCall call) {
         getActivity().runOnUiThread(() -> {
             Intent details = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
@@ -156,24 +166,28 @@ public class NativePushPlugin extends Plugin {
             return;
         }
         String origin = activeAccountKey(getContext());
-        try {
-            if (origin != null) PushNotifications.clearChannel(getContext(), origin, tag);
-            call.resolve();
-        } catch (IllegalStateException failure) {
-            call.reject(failure.getMessage(), "storage", failure);
-        }
+        long through = call.getData().optLong("through", 0);
+        executor.execute(() -> {
+            try {
+                if (origin != null) PushNotifications.clearChannel(getContext(), origin, tag, through);
+                call.resolve();
+            } catch (IllegalStateException failure) { call.reject(failure.getMessage(), "storage", failure); }
+        });
     }
 
     @PluginMethod
     public void recoveryNeeded(PluginCall call) {
         String origin = activeAccountKey(getContext());
         recoveryAccountKey = origin;
-        long generation = origin == null ? 0 : PushNotifications.recoveryGeneration(getContext(), origin);
-        JSObject result = new JSObject();
-        result.put("needed", generation != 0);
-        result.put("generation", generation);
-        result.put("origin", activeBackendOrigin(getContext()));
-        call.resolve(result);
+        String backendOrigin = activeBackendOrigin(getContext());
+        executor.execute(() -> {
+            try {
+                long generation = origin == null ? 0 : PushNotifications.recoveryGeneration(getContext(), origin);
+                JSObject result = new JSObject();
+                result.put("needed", generation != 0); result.put("generation", generation);
+                result.put("origin", backendOrigin); call.resolve(result);
+            } catch (IllegalStateException failure) { call.reject(failure.getMessage(), "storage", failure); }
+        });
     }
 
     @PluginMethod
@@ -181,11 +195,14 @@ public class NativePushPlugin extends Plugin {
         String expected = call.getString("origin");
         String origin = activeAccountKey(getContext());
         Long generation = call.getLong("generation");
-        if (origin != null && origin.equals(recoveryAccountKey)
-            && activeBackendOrigin(getContext()).equals(expected) && generation != null) {
-            PushNotifications.completeRecovery(getContext(), origin, generation);
-        }
-        call.resolve();
+        boolean matches = origin != null && origin.equals(recoveryAccountKey)
+            && activeBackendOrigin(getContext()).equals(expected) && generation != null;
+        executor.execute(() -> {
+            try {
+                if (matches) PushNotifications.completeRecovery(getContext(), origin, generation);
+                call.resolve();
+            } catch (IllegalStateException failure) { call.reject(failure.getMessage(), "storage", failure); }
+        });
     }
 
     // --- From the shell
