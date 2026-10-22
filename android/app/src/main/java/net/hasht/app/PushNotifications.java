@@ -107,7 +107,7 @@ final class PushNotifications {
         if (!registered) return;
         PushOrder.State state = state(context);
         long generation = state.generation;
-        if (!state.accept(message.origin, message.tag, message.kind, message.ids,
+        if (!state.acceptNotification(message.origin, message.tag, message.kind, message.ids,
                 message.created, message.version, message.issued, System.currentTimeMillis())) {
             if (save(context)) {
                 if (generation != state.generation) {

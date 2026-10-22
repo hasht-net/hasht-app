@@ -44,6 +44,24 @@ final class PushOrder {
             cutoffs.values().removeIf(at -> at + RETENTION < now);
         }
 
+        /** A batched recall must tombstone each independent message identity. */
+        boolean acceptNotification(String origin, String tag, String kind, List<String> ids,
+                                   long created, long version, long issued, long now) {
+            if (!"remove".equals(kind) || ids.size() <= 1) {
+                return accept(origin, tag, kind, ids, created, version, issued, now);
+            }
+            if (ids.size() > 32) return false;
+            String channelTag = tag.split("/message:", 2)[0];
+            boolean accepted = false;
+            long before = generation;
+            for (String id : ids) {
+                accepted |= accept(origin, channelTag + "/message:" + id, kind,
+                    java.util.Collections.singletonList(id), 0, 0, issued, now);
+                if (generation != before) return false;
+            }
+            return accepted;
+        }
+
         /** False means an expired, duplicate, withdrawn or superseded event. */
         boolean accept(String origin, String tag, String kind, List<String> ids,
                        long created, long version, long issued, long now) {

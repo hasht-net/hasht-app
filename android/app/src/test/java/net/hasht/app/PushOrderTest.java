@@ -20,6 +20,15 @@ public class PushOrderTest {
         return PushOrder.State.decode(state.encode());
     }
 
+    @Test public void batchedRecallBeforeAlertsProtectsEveryIdentityAcrossRestart() throws Exception {
+        PushOrder.State state = new PushOrder.State();
+        assertTrue(state.acceptNotification(ORIGIN, TAG + "/message:" + B, "remove", Arrays.asList(A, B), 0, 0, NOW, NOW));
+        state = restart(state);
+        assertFalse(state.acceptNotification(ORIGIN, TAG + "/message:" + A, "message", Collections.singletonList(A), 1, 1, NOW, NOW));
+        assertFalse(state.acceptNotification(ORIGIN, TAG + "/message:" + B, "message", Collections.singletonList(B), 2, 2, NOW, NOW));
+        assertTrue(state.acceptNotification(ORIGIN, TAG + "/message:new", "message", Collections.singletonList("new"), 3, 3, NOW, NOW));
+    }
+
     @Test public void individualMessagesSurviveReorderingAndChannelClear() throws Exception {
         PushOrder.State state = new PushOrder.State();
         String first = TAG + "/message:" + A;
