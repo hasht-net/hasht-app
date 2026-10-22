@@ -153,8 +153,8 @@ export function canSignInWithBrowser(): boolean {
 
 /**
  * Passkey sign-in via the `auth::native` browser handoff — the webview itself
- * can't run WebAuthn for a self-hosted origin. The shell shows the match code,
- * opens the browser sheet and redeems the code; this resolves with the
+ * can't run WebAuthn for a self-hosted origin. The shell opens the browser
+ * sheet and redeems the code; this resolves with the
  * server's `AuthResponse`, or null if the user cancelled.
  */
 export async function signInWithBrowser(): Promise<unknown | null> {

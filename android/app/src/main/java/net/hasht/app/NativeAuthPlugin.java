@@ -77,15 +77,16 @@ public class NativeAuthPlugin extends Plugin {
     private static final class Handoff {
         final String base;
         final Outcome outcome;
+        final boolean confirmHost;
         String requestId;
-        String matchCode;
         String verifier;
         boolean inBrowser;
         boolean viaAuthTab;
 
-        Handoff(String base, Outcome outcome) {
+        Handoff(String base, Outcome outcome, boolean confirmHost) {
             this.base = base;
             this.outcome = outcome;
+            this.confirmHost = confirmHost;
         }
     }
 
@@ -128,7 +129,8 @@ public class NativeAuthPlugin extends Plugin {
             call.reject("No server is selected.");
             return;
         }
-        run(active.optString("url"), new Outcome() {
+        // The user just tapped Sign in on this server's own page: nothing to confirm.
+        run(active.optString("url"), false, new Outcome() {
             @Override
             public void signedIn(JSObject auth) {
                 JSObject result = new JSObject();
@@ -174,7 +176,7 @@ public class NativeAuthPlugin extends Plugin {
     private void onSignInLink(Uri link) {
         final Uri origin = httpsOrigin(link.getQueryParameter("server"));
         if (origin == null) return;
-        run(origin.toString(), new Outcome() {
+        run(origin.toString(), true, new Outcome() {
             @Override
             public void signedIn(JSObject auth) {
                 adopt(auth, origin);
@@ -220,12 +222,12 @@ public class NativeAuthPlugin extends Plugin {
 
     // --- The handoff
 
-    private void run(String base, Outcome outcome) {
+    private void run(String base, boolean confirmHost, Outcome outcome) {
         if (current != null) {
             outcome.failed("A sign-in is already in progress.");
             return;
         }
-        final Handoff handoff = new Handoff(base, outcome);
+        final Handoff handoff = new Handoff(base, outcome, confirmHost);
         current = handoff;
         new Thread(() -> {
             try {
@@ -241,29 +243,28 @@ public class NativeAuthPlugin extends Plugin {
                     return;
                 }
                 JSONObject json = res.status == 200 ? new JSONObject(res.body) : null;
-                if (json == null || !json.has("request_id") || !json.has("match_code")) {
+                // match_code is deprecated and ignored: Authorize now asks for a step-up.
+                if (json == null || !json.has("request_id")) {
                     finish(handoff, h -> h.outcome.failed("Couldn't start sign-in (" + res.status + ")."));
                     return;
                 }
                 handoff.requestId = json.getString("request_id");
-                handoff.matchCode = json.getString("match_code");
-                main.post(() -> confirm(handoff));
+                main.post(() -> {
+                    if (handoff.confirmHost) confirm(handoff);
+                    else openBrowser(handoff);
+                });
             } catch (Exception e) {
                 finish(handoff, h -> h.outcome.failed("Couldn't reach that server."));
             }
         }).start();
     }
 
-    /**
-     * The browser covers the app, so the code is shown here first — and this
-     * is also the confirm a hasht://signin link must never skip.
-     */
+    /** The confirm a hasht://signin link must never skip: any page can send one naming any host. */
     private void confirm(Handoff handoff) {
         String host = Uri.parse(handoff.base).getHost();
-        String code = handoff.matchCode.replaceAll("(.{4})(?=.)", "$1 ");
         new AlertDialog.Builder(getActivity())
             .setTitle("Sign in to " + host + "?")
-            .setMessage("Your browser will show a code. Only approve if it matches:\n\n" + code)
+            .setMessage("Your browser will open so you can sign in and approve.")
             .setNegativeButton("Cancel", (dialog, which) -> finish(handoff, h -> h.outcome.cancelled()))
             .setOnCancelListener(dialog -> finish(handoff, h -> h.outcome.cancelled()))
             .setPositiveButton("Continue", (dialog, which) -> openBrowser(handoff))
