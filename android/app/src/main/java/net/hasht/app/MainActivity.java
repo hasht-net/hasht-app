@@ -12,7 +12,7 @@ public class MainActivity extends BridgeActivity {
     protected void load() {
         android.webkit.WebView webView = findViewById(com.getcapacitor.android.R.id.webview);
         org.json.JSONObject entry = ServerConfigPlugin.activeServer(this);
-        if (entry != null) webView.addJavascriptInterface(new AccountContext(entry), "HashtAccount");
+        if (entry != null) webView.addJavascriptInterface(new AccountContext(this, entry), "HashtAccount");
         super.load();
     }
 
@@ -20,13 +20,16 @@ public class MainActivity extends BridgeActivity {
         private final String origin;
         private final String id;
         private final String storageKey;
+        private final String removedKeys;
 
-        AccountContext(org.json.JSONObject entry) {
+        AccountContext(android.content.Context context, org.json.JSONObject entry) {
             origin = ServerConfigPlugin.originKey(android.net.Uri.parse(entry.optString("url")));
             id = entry.optString("id");
+            removedKeys = ServerConfigPlugin.removedStorageKeys(context, origin);
             storageKey = entry.optBoolean("legacySession") ? "chat_auth" : "hasht.account." + id + ".auth";
         }
 
+        @android.webkit.JavascriptInterface public String getRemovedStorageKeys() { return removedKeys; }
         @android.webkit.JavascriptInterface public String getOrigin() { return origin; }
         @android.webkit.JavascriptInterface public String getAccountID() { return id; }
         @android.webkit.JavascriptInterface public String getStorageKey() { return storageKey; }

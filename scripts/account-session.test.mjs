@@ -5,8 +5,9 @@ import vm from 'node:vm';
 
 const source = readFileSync(new URL('../public/native/account-session.js', import.meta.url), 'utf8');
 
-function page(data, id, { legacy = false, origin = 'https://chat.test' } = {}) {
+function page(data, id, { legacy = false, origin = 'https://chat.test', removed = [] } = {}) {
   const listeners = [];
+  const requests = [];
   class Storage {
     constructor(values = new Map()) { this.values = values; }
     get length() { return this.values.size; }
@@ -23,6 +24,7 @@ function page(data, id, { legacy = false, origin = 'https://chat.test' } = {}) {
   const window = {
     HashtAccount: {
       getOrigin: () => 'https://chat.test', getAccountID: () => id,
+      getRemovedStorageKeys: () => JSON.stringify(removed),
       getStorageKey: () => legacy ? 'chat_auth' : `hasht.account.${id}.auth`,
     },
     addEventListener(type, listener) { listeners.push(listener); },
@@ -33,9 +35,9 @@ function page(data, id, { legacy = false, origin = 'https://chat.test' } = {}) {
       }
     },
   };
-  const context = vm.createContext({ window, Storage, StorageEvent, location: { origin }, localStorage: new Storage(data), sessionStorage: new Storage() });
+  const context = vm.createContext({ window, Storage, StorageEvent, fetch: async (...args) => { requests.push(args); return {}; }, location: { origin }, localStorage: new Storage(data), sessionStorage: new Storage() });
   vm.runInContext(source, context);
-  return { ...context, run: (script) => vm.runInContext(script, context) };
+  return { ...context, requests, run: (script) => vm.runInContext(script, context) };
 }
 
 test('duplicate entries start signed out and retain separate accounts across reloads', () => {
@@ -91,4 +93,22 @@ test('other origins are left alone', () => {
   const current = page(new Map([['chat_auth', 'sso']]), 'a', { origin: 'https://sso.test' });
   assert.equal(current.window.__hashtAccountID, undefined);
   assert.equal(current.localStorage.getItem('chat_auth'), 'sso');
+});
+
+
+test('native removal tombstones clear only forgotten credentials before app hydration', () => {
+  const old = JSON.stringify({ token: 'old-session' });
+  const other = JSON.stringify({ token: 'other-session' });
+  const data = new Map([['chat_auth', old], ['hasht.account.a.auth', old], ['hasht.account.b.auth', other]]);
+  const current = page(data, 'b', { removed: ['chat_auth', 'hasht.account.a.auth'] });
+  assert.equal(current.localStorage.getItem('chat_auth'), other);
+  assert.equal(data.has('chat_auth'), false);
+  assert.equal(data.has('hasht.account.a.auth'), false);
+  assert.equal(current.requests.length, 2);
+  for (const [url, options] of current.requests) {
+    assert.equal(url, '/api/auth/logout');
+    assert.equal(options.headers.Authorization, 'Bearer old-session');
+    assert.equal(options.redirect, 'error');
+  }
+  assert.equal(page(data, 'new', { removed: ['chat_auth', 'hasht.account.a.auth'] }).localStorage.getItem('chat_auth'), null);
 });

@@ -166,6 +166,8 @@ public class NativeAuthPlugin extends Plugin {
         });
     }
 
+    static void forgetAccount(String id) { pendingAuth.remove(id); }
+
     @PluginMethod
     public void takePendingAuth(PluginCall call) {
         JSONObject active = ServerConfigPlugin.activeServer(getContext());

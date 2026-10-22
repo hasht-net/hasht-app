@@ -90,6 +90,8 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
         }
     }
 
+    func forgetAccount(_ id: String) { pendingAuth.removeValue(forKey: id) }
+
     @objc func takePendingAuth(_ call: CAPPluginCall) {
         let auth = serverConfig?.activeServer.flatMap { pendingAuth.removeValue(forKey: $0.id) }
         call.resolve(["auth": auth ?? NSNull()])
