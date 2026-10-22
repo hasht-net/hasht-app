@@ -14,9 +14,12 @@ export interface NativeAuthPlugin {
   /**
    * Signs in to the active server. Opens the browser sheet. Rejects with code `cancelled` if the user backs out.
    *
+   * `invite` (alphanumeric, else dropped) prefills the browser's invite field;
+   * `register` opens it on Register. Neither affects where the code goes.
+   *
    * `auth` is the server's `AuthResponse`, passed through untouched.
    */
-  signIn(): Promise<{ auth: unknown }>;
+  signIn(options?: { invite?: string; register?: boolean }): Promise<{ auth: unknown }>;
   /**
    * Auth that a `hasht://signin?server=<origin>` link finished for the active
    * server before loading it. Null when there is none; taking it clears it.

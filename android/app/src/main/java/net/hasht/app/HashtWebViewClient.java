@@ -65,6 +65,11 @@ class HashtWebViewClient extends BridgeWebViewClient {
         // through its own SSO; only a navigation the page started is a "link".
         if (request.isForMainFrame() && !request.isRedirect()
             && LinkOpener.leavesApp(url, Uri.parse(bridge.getAppUrl()))) {
+            // An invite or message link for a saved server (or the hosted one)
+            // opens in that server, not a browser tab.
+            com.getcapacitor.PluginHandle handle = bridge.getPlugin("ServerConfig");
+            Object plugin = handle == null ? null : handle.getInstance();
+            if (plugin instanceof ServerConfigPlugin && ((ServerConfigPlugin) plugin).routeIfOwned(url)) return true;
             LinkOpener.open(bridge.getActivity(), url);
             return true;
         }

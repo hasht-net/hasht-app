@@ -9,6 +9,12 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!-- Declares chat.hasht.net back, so Chrome's getInstalledRelatedApps()
+             can tell that page the app is installed. -->
+        <meta-data
+            android:name="asset_statements"
+            android:resource="@string/asset_statements" />
+
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"
@@ -27,6 +33,20 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="hasht" />
+            </intent-filter>
+
+            <!-- App Links for the hosted instance: invite and message links
+                 only. Sign-in pages (and the ?native_auth= browser leg of the
+                 app's own sign-in) must always stay in the browser. Verified
+                 against chat.hasht.net/.well-known/assetlinks.json. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="chat.hasht.net" />
+                <data android:pathPrefix="/invite/" />
+                <data android:pathPrefix="/channels/" />
             </intent-filter>
 
             <!-- Share sheet target; see ShareTargetPlugin. -->

@@ -47,6 +47,7 @@ enum LinkOpener {
 final class LinkUIDelegate: NSObject, WKUIDelegate {
     private let wrapped: WKUIDelegate
     private weak var viewController: UIViewController?
+    weak var serverConfig: ServerConfigPlugin?
 
     init(wrapping wrapped: WKUIDelegate, presenter: UIViewController) {
         self.wrapped = wrapped
@@ -69,6 +70,8 @@ final class LinkUIDelegate: NSObject, WKUIDelegate {
         if let app = webView.url, LinkOpener.isWeb(url), !LinkOpener.leavesApp(url, app: app) {
             // Same instance in a new tab: nothing to hand off.
             webView.load(navigationAction.request)
+        } else if let servers = serverConfig, servers.ownsLink(url) {
+            NotificationCenter.default.post(name: .hashtRouteLink, object: ["url": url])
         } else {
             LinkOpener.open(url, from: viewController)
         }

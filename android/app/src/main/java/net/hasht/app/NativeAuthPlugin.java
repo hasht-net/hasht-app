@@ -78,6 +78,9 @@ public class NativeAuthPlugin extends Plugin {
         final String base;
         final Outcome outcome;
         final boolean confirmHost;
+        /** Register tab and invite from the page; they only shape the browser's form. */
+        String invite;
+        boolean register;
         String requestId;
         String verifier;
         boolean inBrowser;
@@ -129,8 +132,14 @@ public class NativeAuthPlugin extends Plugin {
             call.reject("No server is selected.");
             return;
         }
+        String invite = call.getString("invite");
+        final String validInvite = invite != null && invite.matches("[A-Za-z0-9]{1,32}") ? invite : null;
+        final boolean register = Boolean.TRUE.equals(call.getBoolean("register", false));
         // The user just tapped Sign in on this server's own page: nothing to confirm.
-        run(active.optString("url"), false, new Outcome() {
+        run(active.optString("url"), false, handoff -> {
+            handoff.invite = validInvite;
+            handoff.register = register;
+        }, new Outcome() {
             @Override
             public void signedIn(JSObject auth) {
                 JSObject result = new JSObject();
@@ -164,11 +173,13 @@ public class NativeAuthPlugin extends Plugin {
     private void handleIntent(Intent intent) {
         Uri data = intent == null ? null : intent.getData();
         if (data == null || !SCHEME.equals(data.getScheme())) return;
-        // Consumed: recreate() reuses this intent, and must not replay it.
-        intent.setData(null);
+        // Only its own hosts: hasht://open is ServerConfig's.
         if ("auth".equals(data.getHost())) {
+            // Consumed: recreate() reuses this intent, and must not replay it.
+            intent.setData(null);
             onCallback(data);
         } else if ("signin".equals(data.getHost())) {
+            intent.setData(null);
             onSignInLink(data);
         }
     }
@@ -176,7 +187,7 @@ public class NativeAuthPlugin extends Plugin {
     private void onSignInLink(Uri link) {
         final Uri origin = httpsOrigin(link.getQueryParameter("server"));
         if (origin == null) return;
-        run(origin.toString(), true, new Outcome() {
+        run(origin.toString(), true, handoff -> {}, new Outcome() {
             @Override
             public void signedIn(JSObject auth) {
                 adopt(auth, origin);
@@ -222,12 +233,13 @@ public class NativeAuthPlugin extends Plugin {
 
     // --- The handoff
 
-    private void run(String base, boolean confirmHost, Outcome outcome) {
+    private void run(String base, boolean confirmHost, Report setup, Outcome outcome) {
         if (current != null) {
             outcome.failed("A sign-in is already in progress.");
             return;
         }
         final Handoff handoff = new Handoff(base, outcome, confirmHost);
+        setup.to(handoff);
         current = handoff;
         new Thread(() -> {
             try {
@@ -272,11 +284,13 @@ public class NativeAuthPlugin extends Plugin {
     }
 
     private void openBrowser(Handoff handoff) {
-        Uri url = Uri.parse(handoff.base).buildUpon()
+        Uri.Builder builder = Uri.parse(handoff.base).buildUpon()
             .path("/")
             .clearQuery()
-            .appendQueryParameter("native_auth", handoff.requestId)
-            .build();
+            .appendQueryParameter("native_auth", handoff.requestId);
+        if (handoff.invite != null) builder.appendQueryParameter("invite", handoff.invite);
+        if (handoff.register) builder.appendQueryParameter("register", "1");
+        Uri url = builder.build();
         String provider = CustomTabsClient.getPackageName(getContext(), null);
         handoff.inBrowser = true;
         try {
