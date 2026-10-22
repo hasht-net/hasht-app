@@ -22,6 +22,29 @@ const hostedBtn = el<HTMLButtonElement>('hosted-connect');
 const selfhostedForm = el<HTMLFormElement>('selfhosted-form');
 const selfhostedBtn = el<HTMLButtonElement>('selfhosted-connect');
 
+// iOS uses resize:none: the native inset is the only indication that the
+// keyboard covers the picker. Android/browser keyboards can shrink the visual
+// viewport instead. Recheck on focus too, when moving between fields while up.
+function revealFocusedInput() {
+  requestAnimationFrame(() => {
+    const input = document.activeElement;
+    if (!(input instanceof HTMLInputElement)) return;
+    const viewport = window.visualViewport;
+    if (viewport && viewport.scale > 1.001) return;
+    const inset = Number.parseFloat(getComputedStyle(document.documentElement)
+      .getPropertyValue('--hasht-keyboard-inset')) || 0;
+    const top = viewport?.offsetTop ?? 0;
+    const bottom = Math.min(top + (viewport?.height ?? window.innerHeight), window.innerHeight - inset);
+    const bounds = input.getBoundingClientRect();
+    if (bounds.bottom > bottom - 16) window.scrollBy(0, bounds.bottom - bottom + 16);
+    else if (bounds.top < top + 16) window.scrollBy(0, bounds.top - top - 16);
+  });
+}
+document.addEventListener('focusin', revealFocusedInput);
+window.addEventListener('hasht:keyboard', revealFocusedInput);
+window.addEventListener('resize', revealFocusedInput);
+window.visualViewport?.addEventListener('resize', revealFocusedInput);
+
 // Only one choice card is expanded at a time.
 function selectCard(card: HTMLElement | null) {
   for (const other of document.querySelectorAll('.card')) {
