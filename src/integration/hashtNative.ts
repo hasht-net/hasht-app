@@ -158,7 +158,7 @@ export function canSignInWithBrowser(): boolean {
  * server's `AuthResponse`, or null if the user cancelled.
  */
 export async function signInWithBrowser(
-  options: { invite?: string; register?: boolean } = {},
+  options: { invite?: string; register?: boolean; username?: string; displayName?: string } = {},
 ): Promise<unknown | null> {
   try {
     const { auth } = (await capacitor()?.Plugins?.NativeAuth?.signIn(options)) as { auth: unknown };
