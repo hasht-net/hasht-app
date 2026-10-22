@@ -58,6 +58,7 @@ import java.util.UUID;
 public class ServerConfigPlugin extends Plugin {
 
     private static final String PREFS = "net.hasht.app";
+    private static final String KEY_REMOVED = "removedAccounts";
     private static final String KEY_SERVERS = "servers";
     private static final String KEY_ACTIVE = "activeServerId";
     /** Where a link goes when several entries share its origin. Links only. */
@@ -90,10 +91,31 @@ public class ServerConfigPlugin extends Plugin {
                 }
             }
             if (changed) prefs(context).edit().putString(KEY_SERVERS, entries.toString()).apply();
-            return entries;
+            JSONArray kept = new JSONArray();
+            JSONArray removed = new JSONArray(prefs(context).getString(KEY_REMOVED, "[]"));
+            for (int i = 0; i < entries.length(); i++) {
+                JSONObject entry = entries.getJSONObject(i);
+                boolean forgotten = false;
+                for (int j = 0; j < removed.length(); j++)
+                    if (entry.optString("id").equals(removed.getJSONObject(j).optString("id"))) forgotten = true;
+                if (!forgotten) kept.put(entry);
+            }
+            return kept;
         } catch (JSONException e) {
             return new JSONArray();
         }
+    }
+
+    static String removedStorageKeys(Context context, String origin) {
+        JSONArray keys = new JSONArray();
+        try {
+            JSONArray removed = new JSONArray(prefs(context).getString(KEY_REMOVED, "[]"));
+            for (int i = 0; i < removed.length(); i++) {
+                JSONObject entry = removed.getJSONObject(i);
+                if (origin.equals(entry.optString("origin"))) keys.put(entry.getString("key"));
+            }
+        } catch (JSONException ignored) { }
+        return keys.toString();
     }
 
     private JSONArray servers() { return storedServers(getContext()); }
@@ -542,6 +564,28 @@ public class ServerConfigPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void openSecuritySettings(PluginCall call) {
+        String userId = call.getString("userId");
+        JSONObject active = activeServer(getContext());
+        if (userId == null || !userId.matches("[0-9a-fA-F-]{36}") || active == null) {
+            call.reject("An account and server are required.");
+            return;
+        }
+        Uri base = Uri.parse(active.optString("url"));
+        if (!"https".equals(base.getScheme())) { call.reject("A secure server is required."); return; }
+        Uri target = Uri.parse(originKey(base)).buildUpon().path("/")
+            .appendQueryParameter("manage_security", userId).build();
+        getActivity().runOnUiThread(() -> {
+            try {
+                new androidx.browser.customtabs.CustomTabsIntent.Builder().build().launchUrl(getContext(), target);
+                call.resolve();
+            } catch (android.content.ActivityNotFoundException error) {
+                call.reject("Install a browser to manage passkeys.");
+            }
+        });
+    }
+
+    @PluginMethod
     public void remove(PluginCall call) {
         String id = call.getString("id");
         if (id == null) {
@@ -554,7 +598,19 @@ public class ServerConfigPlugin extends Plugin {
             for (int i = 0; i < all.length(); i++) {
                 JSONObject entry = all.getJSONObject(i);
                 if (!entry.getString("id").equals(id)) kept.put(entry);
+                else {
+                    String origin = originKey(Uri.parse(entry.getString("url")));
+                    String key = entry.optBoolean("legacySession") ? "chat_auth" : "hasht.account." + id + ".auth";
+                    JSONArray removed = new JSONArray(prefs().getString(KEY_REMOVED, "[]"));
+                    removed.put(new JSONObject().put("id", id).put("origin", origin).put("key", key));
+                    if (!prefs().edit().putString(KEY_REMOVED, removed.toString()).commit()) {
+                        call.reject("Could not save server removal."); return;
+                    }
+                    NativePushPlugin.unregister(getContext(), entry.optBoolean("legacySession") ? origin : id);
+                    getActivity().runOnUiThread(() -> clearSavedAccount(origin, key));
+                }
             }
+            NativeAuthPlugin.forgetAccount(id);
             saveServers(kept);
             if (id.equals(activeId())) setActiveId(null);
             if (id.equals(prefs().getString(KEY_DEFAULT, null))) prefs().edit().remove(KEY_DEFAULT).apply();
@@ -562,6 +618,51 @@ public class ServerConfigPlugin extends Plugin {
         } catch (JSONException e) {
             call.reject("could not remove that server");
         }
+    }
+
+    private void clearSavedAccount(String origin, String key) {
+        android.webkit.WebView cleanup = new android.webkit.WebView(getContext());
+        cleanup.getSettings().setJavaScriptEnabled(true);
+        cleanup.getSettings().setDomStorageEnabled(true);
+        final boolean[] finished = { false };
+        Runnable finish = () -> {
+            if (!finished[0]) { finished[0] = true; cleanup.stopLoading(); cleanup.destroy(); }
+        };
+        cleanup.setWebViewClient(new android.webkit.WebViewClient() {
+            @Override public boolean shouldOverrideUrlLoading(android.webkit.WebView view, android.webkit.WebResourceRequest request) {
+                return !origin.equals(originKey(request.getUrl()));
+            }
+            @Override public void onPageFinished(android.webkit.WebView view, String url) {
+                if (finished[0] || !origin.equals(originKey(Uri.parse(url)))) return;
+                String script = "(() => { const key = " + JSONObject.quote(key) + "; "
+                    + "const raw = localStorage.getItem(key); localStorage.removeItem(key); "
+                    + "try { return JSON.parse(raw || 'null')?.token || ''; } catch (_) { return ''; } })()";
+                view.evaluateJavascript(script, value -> {
+                    if (finished[0]) return;
+                    try {
+                        String token = new JSONArray("[" + value + "]").optString(0);
+                        if (!token.isEmpty()) new Thread(() -> revokeRemovedSession(origin, token)).start();
+                    } catch (JSONException ignored) { }
+                    finish.run();
+                });
+            }
+        });
+        cleanup.loadUrl(origin + "/api/health");
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(finish, 12000);
+    }
+
+    private void revokeRemovedSession(String origin, String token) {
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) new URL(origin + "/api/auth/logout").openConnection();
+            connection.setInstanceFollowRedirects(false);
+            connection.setConnectTimeout(10000);
+            connection.setReadTimeout(10000);
+            connection.setRequestMethod("POST");
+            connection.setRequestProperty("Authorization", "Bearer " + token);
+            connection.getResponseCode();
+        } catch (java.io.IOException ignored) { }
+        finally { if (connection != null) connection.disconnect(); }
     }
 
     @PluginMethod

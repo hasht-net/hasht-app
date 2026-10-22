@@ -44,15 +44,23 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "getLinkMode", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setLinkMode", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setAccount", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "setDefault", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "setDefault", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "openSecuritySettings", returnType: CAPPluginReturnPromise)
     ]
 
     private static let serversKey = "net.hasht.app.servers"
     private static let activeKey = "net.hasht.app.activeServerId"
+    private var cleanups: [UUID: AccountRemoval] = [:]
+    private var removedAccounts: [[String: String]]? {
+        ShareSession.removedAccounts()
+    }
+
     private static let defaultKey = "net.hasht.app.defaultServerId"
 
     private var servers: [ServerEntry] {
         get {
+            // Do not hydrate saved auth while the Keychain is unavailable.
+            guard let removedAccounts else { return [] }
             guard let data = UserDefaults.standard.data(forKey: Self.serversKey),
                   let decoded = try? JSONDecoder().decode([ServerEntry].self, from: data)
             else { return [] }
@@ -69,10 +77,11 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
             if decoded.contains(where: { $0.legacySession == nil }) {
                 UserDefaults.standard.set(try? JSONEncoder().encode(migrated), forKey: Self.serversKey)
             }
-            return migrated
+            return migrated.filter { entry in !removedAccounts.contains { $0["id"] == entry.id } }
         }
         set {
-            UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: Self.serversKey)
+            guard let removedAccounts else { return }
+            UserDefaults.standard.set(try? JSONEncoder().encode(newValue.filter { entry in !removedAccounts.contains { $0["id"] == entry.id } }), forKey: Self.serversKey)
         }
     }
 
@@ -91,6 +100,8 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     override public func load() {
+        // The shared Keychain can survive uninstall; never expose an old share session.
+        ShareSession.save(nil)
         // Universal links, the Smart App Banner (an https URL through
         // openURLContexts), `hasht://open`, and links tapped in the webview.
         // Capacitor replays a cold start's links once plugins have loaded.
@@ -186,6 +197,25 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve()
     }
 
+    /// A fixed same-instance destination; credentials never go in the URL.
+    @objc func openSecuritySettings(_ call: CAPPluginCall) {
+        guard let userId = call.getString("userId"), UUID(uuidString: userId) != nil,
+              let active = activeServer, let base = URL(string: active.url),
+              base.scheme == "https",
+              var target = URLComponents(string: Self.originKey(base)) else {
+            call.reject("A secure server and account are required.")
+            return
+        }
+        target.path = "/"
+        target.queryItems = [URLQueryItem(name: "manage_security", value: userId)]
+        guard let url = target.url else { call.reject("Invalid server."); return }
+        DispatchQueue.main.async {
+            UIApplication.shared.open(url, options: [:]) { opened in
+                if opened { call.resolve() } else { call.reject("Could not open your browser.") }
+            }
+        }
+    }
+
     @objc func list(_ call: CAPPluginCall) {
         call.resolve([
             "servers": servers.map {
@@ -260,17 +290,19 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     func installAccountSession(in webView: WKWebView) {
+        guard let removedAccounts else { return }
         guard let entry = servers.first(where: { $0.id == activeId }), let url = URL(string: entry.url),
               let asset = Bundle.main.url(forResource: "account-session", withExtension: "js", subdirectory: "public/native"),
               let script = try? String(contentsOf: asset, encoding: .utf8),
               let config = try? JSONSerialization.data(withJSONObject: [
                 "origin": Self.originKey(url), "id": entry.id,
-                "key": entry.legacySession == true ? "chat_auth" : "hasht.account.\(entry.id).auth"
+                "key": entry.legacySession == true ? "chat_auth" : "hasht.account.\(entry.id).auth",
+                "removed": removedAccounts.filter { $0["origin"] == Self.originKey(url) }.compactMap { $0["key"] }
               ]), let json = String(data: config, encoding: .utf8) else { return }
         let source = """
         window.HashtAccount = (() => {
           const config = \(json);
-          return {getOrigin: () => config.origin, getAccountID: () => config.id, getStorageKey: () => config.key};
+          return {getOrigin: () => config.origin, getAccountID: () => config.id, getStorageKey: () => config.key, getRemovedStorageKeys: () => JSON.stringify(config.removed)};
         })();
         \(script)
         """
@@ -322,7 +354,29 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("id is required")
             return
         }
+        guard let entry = servers.first(where: { $0.id == id }), let url = URL(string: entry.url) else {
+            call.resolve(); return
+        }
+        (bridge?.plugin(withName: "NativeAuth") as? NativeAuthPlugin)?.forgetAccount(id)
+        let key = entry.legacySession == true ? "chat_auth" : "hasht.account.\(id).auth"
+        let origin = Self.originKey(url)
+        // Write the tombstone first: stale account reports cannot resurrect it.
+        guard ShareSession.rememberRemovedAccount(["id": id, "origin": origin, "key": key]) else {
+            call.reject("Could not save server removal. Unlock your device and try again.")
+            return
+        }
         servers = servers.filter { $0.id != id }
+        let pushKey = entry.legacySession == true ? origin : id
+        if let push = bridge?.plugin(withName: "NativePush") as? NativePushPlugin {
+            Task { @MainActor in await push.unregister(origin: pushKey) }
+        }
+        DispatchQueue.main.async {
+            let cleanupId = UUID()
+            let cleanup = AccountRemoval(origin: origin, key: key) { self.cleanups.removeValue(forKey: cleanupId) }
+            self.cleanups[cleanupId] = cleanup
+            cleanup.start()
+        }
+        if ShareSession.load()?.origin == origin && ShareSession.load()?.username == entry.username { ShareSession.save(nil) }
         if defaultId == id { defaultId = nil }
         if activeId == id {
             ShareSession.save(nil)
@@ -531,5 +585,67 @@ private extension UIColor {
             blue: CGFloat(value & 0xFF) / 255,
             alpha: 1
         )
+    }
+}
+
+/// A bridge-free view of the exact origin, used only to remove one saved auth key.
+private final class AccountRemoval: NSObject, WKScriptMessageHandler, WKNavigationDelegate, URLSessionTaskDelegate {
+    private let origin: String
+    private let key: String
+    private let done: () -> Void
+    private var view: WKWebView?
+    init(origin: String, key: String, done: @escaping () -> Void) {
+        self.origin = origin; self.key = key; self.done = done
+    }
+    func start() {
+        guard let configData = try? JSONSerialization.data(withJSONObject: ["origin": origin, "key": key]),
+              let config = String(data: configData, encoding: .utf8),
+              let url = URL(string: origin + "/api/health") else { done(); return }
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .default()
+        configuration.userContentController.add(self, name: "removedAccount")
+        configuration.userContentController.addUserScript(WKUserScript(source: """
+        (() => {
+          const config = \(config);
+          if (location.origin !== config.origin || window !== window.top) return;
+          const raw = localStorage.getItem(config.key);
+          localStorage.removeItem(config.key);
+          let token = '';
+          try { token = JSON.parse(raw || 'null')?.token || ''; } catch (_) {}
+          window.webkit.messageHandlers.removedAccount.postMessage(token);
+        })();
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        view = WKWebView(frame: .zero, configuration: configuration)
+        view?.navigationDelegate = self
+        view?.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in self?.finish() }
+    }
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.frameInfo.isMainFrame,
+              message.frameInfo.request.url.map(ServerConfigPlugin.originKey) == origin,
+              let token = message.body as? String else { return }
+        if !token.isEmpty, let url = URL(string: origin + "/api/auth/logout") {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 10
+            request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+            let session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: nil)
+            session.dataTask(with: request) { _, _, _ in session.finishTasksAndInvalidate() }.resume()
+        }
+        finish()
+    }
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        decisionHandler(action.request.url.map(ServerConfigPlugin.originKey) == origin ? .allow : .cancel)
+    }
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
+    private func finish() {
+        guard let view else { return }
+        view.stopLoading()
+        view.configuration.userContentController.removeScriptMessageHandler(forName: "removedAccount")
+        self.view = nil
+        done()
     }
 }

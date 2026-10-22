@@ -315,3 +315,19 @@ account on a live instance.
 
 [MIT](LICENSE), copyright © 2026 Hasht LLC. See
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for third-party licenses.
+
+### Removing a saved account and managing passkeys
+
+Removing a picker entry writes a durable account tombstone (Keychain metadata on iOS), removes its stored
+login, and unregisters its push subscription. Cleanup targets only that entry's
+storage key, preserving other accounts on the same instance. A bridge-free,
+origin-restricted webview reads the removed token for server logout; cleanup
+has a bounded lifetime. If the instance cannot be reached, the tombstone prevents
+local restoration and the packaged account script clears the old key on the next
+visit to that origin. Remote session revocation requires connectivity. Android
+backup and device-transfer restore are disabled for app data.
+
+Security settings can open the selected instance's passkey management page in a
+real browser through `ServerConfig.openSecuritySettings({ userId })`. The URL
+carries only the account ID; the browser authenticates independently and checks
+that it is managing the same account. No bearer token is handed to the browser.

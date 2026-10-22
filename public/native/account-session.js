@@ -3,6 +3,20 @@
   if (!context || location.origin !== context.getOrigin()) return;
   const storageKey = context.getStorageKey();
   const accountID = context.getAccountID();
+  // Native tombstones are installed before the remote app can hydrate auth.
+  const removed = JSON.parse(context.getRemovedStorageKeys?.() || '[]');
+  for (const name of removed) {
+    const raw = localStorage.getItem(name);
+    localStorage.removeItem(name);
+    try {
+      const token = JSON.parse(raw || 'null')?.token;
+      if (token) void fetch('/api/auth/logout', {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+        credentials: 'omit', redirect: 'error', keepalive: true,
+      }).catch(() => {});
+    } catch (_) {}
+  }
+
   Object.defineProperty(window, '__hashtAccountID', { value: accountID });
 
   const prototype = Storage.prototype;
