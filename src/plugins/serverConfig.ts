@@ -48,6 +48,8 @@ export interface ServerConfigPlugin {
    * not navigate.
    */
   signOut(): Promise<void>;
+  /** Paints the status and navigation bars to match a page's resolved theme. */
+  setTheme(options: { theme: 'dark' | 'light'; color: string }): Promise<void>;
   /** Back to the wizard without forgetting anything — a dead instance, or an explicit switch. */
   reset(): Promise<void>;
   /**

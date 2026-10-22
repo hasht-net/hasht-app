@@ -1,6 +1,8 @@
+import '@fontsource-variable/manrope';
 import { ServerConfig, type ServerEntry } from './plugins/serverConfig';
 
-// Kept in step with hasht-desktop's picker.js.
+// hasht-desktop's picker.js mirrors this file. The usernames, default and "+"
+// below haven't reached it yet; port them there when touching either.
 const HOSTED_URL = 'chat.hasht.net';
 const HOSTED_NAME = 'Hasht';
 
@@ -11,6 +13,8 @@ const tagline = el('tagline');
 const addHeading = el('add-heading');
 const serversSection = el('servers-section');
 const serversEl = el<HTMLUListElement>('servers');
+const addSection = el('add-section');
+const addToggle = el<HTMLButtonElement>('add-toggle');
 const errorEl = el('error');
 const urlInput = el<HTMLInputElement>('url');
 const nameInput = el<HTMLInputElement>('name');
@@ -19,14 +23,29 @@ const selfhostedForm = el<HTMLFormElement>('selfhosted-form');
 const selfhostedBtn = el<HTMLButtonElement>('selfhosted-connect');
 
 // Only one choice card is expanded at a time.
+function selectCard(card: HTMLElement | null) {
+  for (const other of document.querySelectorAll('.card')) {
+    other.classList.toggle('selected', other === card);
+  }
+}
+
 for (const card of document.querySelectorAll<HTMLElement>('.card')) {
   card.querySelector('.card-head')?.addEventListener('click', () => {
-    for (const other of document.querySelectorAll('.card')) {
-      other.classList.toggle('selected', other === card);
-    }
+    selectCard(card);
     if (card.dataset.choice === 'selfhosted') urlInput.focus();
   });
 }
+
+// With servers saved, adding one is behind the "+" on "Your servers".
+let adding = false;
+function setAdding(open: boolean) {
+  adding = open;
+  addToggle.setAttribute('aria-expanded', String(open));
+  addToggle.setAttribute('aria-label', open ? 'Close' : 'Add a server');
+  if (!serversSection.hidden) addSection.hidden = !open;
+  if (!open) selectCard(null);
+}
+addToggle.addEventListener('click', () => setAdding(!adding));
 
 async function withBusy(btn: HTMLButtonElement, fn: () => Promise<void>) {
   errorEl.textContent = '';
@@ -53,6 +72,7 @@ async function addServer(rawUrl: string, name?: string) {
   // Native, not fetch — see ServerConfigPlugin.probe.
   const { name: instanceName } = await ServerConfig.probe({ url: origin });
   await ServerConfig.add({ url: origin, name: name ?? instanceName });
+  setAdding(false);
 }
 
 hostedBtn.addEventListener('click', () =>
@@ -68,39 +88,126 @@ selfhostedForm.addEventListener('submit', (event) => {
   });
 });
 
-function renderServer(server: ServerEntry, activeId: string | null): HTMLLIElement {
-  const row = document.createElement('li');
-  row.className = 'server';
+function h<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  className: string,
+  text?: string,
+): HTMLElementTagNameMap[K] {
+  const node = document.createElement(tag);
+  node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function button(className: string, text: string, onClick: () => void): HTMLButtonElement {
+  const node = h('button', className, text);
+  node.type = 'button';
+  node.addEventListener('click', onClick);
+  return node;
+}
+
+function accountLabel(server: ServerEntry): string {
+  return server.username ? `@${server.username}` : 'Not signed in';
+}
+
+// The row whose actions are showing; one at a time.
+let openRow: string | null = null;
+
+function renderServer(server: ServerEntry, activeId: string | null, defaultId: string | null): HTMLLIElement {
+  const row = h('li', 'server');
   row.dataset.active = String(server.id === activeId);
+  const isDefault = server.id === defaultId;
 
-  const meta = document.createElement('button');
+  const meta = h('button', 'meta');
   meta.type = 'button';
-  meta.className = 'meta';
-  meta.innerHTML = '<div class="name"></div><div class="url"></div>';
-  meta.querySelector('.name')!.textContent = server.name;
-  meta.querySelector('.url')!.textContent = new URL(server.url).host;
-  meta.addEventListener('click', () => {
-    void ServerConfig.connect({ id: server.id });
-  });
+  const title = h('div', 'name-line');
+  title.append(h('span', 'name', server.name));
+  if (isDefault) title.append(h('span', 'badge', 'Default'));
+  const sub = h('div', 'sub');
+  sub.append(h('span', server.username ? 'account' : 'account signed-out', accountLabel(server)));
+  sub.append(h('span', 'host', new URL(server.url).host));
+  meta.append(title, sub);
+  meta.setAttribute(
+    'aria-label',
+    `${server.name}, ${server.displayName ? `${server.displayName}, ` : ''}${accountLabel(server)}, ${new URL(server.url).host}${isDefault ? ', default' : ''}`,
+  );
+  meta.addEventListener('click', () => void ServerConfig.connect({ id: server.id }));
 
-  const remove = document.createElement('button');
-  remove.type = 'button';
-  remove.className = 'icon-btn danger';
-  remove.textContent = 'Remove';
-  remove.addEventListener('click', async () => {
-    await ServerConfig.remove({ id: server.id });
-    await refresh();
+  const more = button('icon-btn more', '', () => {
+    openRow = openRow === server.id ? null : server.id;
+    void refresh();
   });
+  more.setAttribute('aria-label', `Options for ${server.name}`);
+  more.setAttribute('aria-expanded', String(openRow === server.id));
+  more.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>';
 
-  row.append(meta, remove);
+  const head = h('div', 'server-head');
+  head.append(meta, more);
+  row.append(head);
+  if (openRow === server.id) row.append(renderActions(server, isDefault));
   return row;
+}
+
+function renderActions(server: ServerEntry, isDefault: boolean): HTMLElement {
+  const actions = h('div', 'actions');
+  const close = () => {
+    openRow = null;
+    void refresh();
+  };
+
+  const showMain = () => {
+    actions.replaceChildren(
+      button('chip', isDefault ? 'Remove default' : 'Make default', async () => {
+        await ServerConfig.setDefault({ id: isDefault ? null : server.id });
+        close();
+      }),
+      button('chip', 'Rename', showRename),
+      button('chip danger', 'Remove', showRemove),
+    );
+  };
+
+  const showRename = () => {
+    const form = h('form', 'rename');
+    const input = h('input', '');
+    input.value = server.name;
+    input.setAttribute('aria-label', 'Name');
+    const save = h('button', 'chip primary-chip', 'Save');
+    save.type = 'submit';
+    form.append(input, save, button('chip', 'Cancel', showMain));
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const name = input.value.trim();
+      if (!name) return;
+      await ServerConfig.rename({ id: server.id, name });
+      close();
+    });
+    actions.replaceChildren(form);
+    input.focus();
+    input.select();
+  };
+
+  const showRemove = () => {
+    actions.replaceChildren(
+      h('p', 'confirm', `Remove ${server.name} from this device? You'll need to sign in again to add it back.`),
+      button('chip danger-fill', 'Remove', async () => {
+        await ServerConfig.remove({ id: server.id });
+        close();
+      }),
+      button('chip', 'Cancel', showMain),
+    );
+  };
+
+  showMain();
+  return actions;
 }
 
 async function refresh() {
   let servers: ServerEntry[] = [];
   let activeId: string | null = null;
+  let defaultId: string | null = null;
   try {
-    ({ servers, activeId } = await ServerConfig.list());
+    ({ servers, activeId, defaultId = null } = await ServerConfig.list());
   } catch (error) {
     // Without the native half there is nothing to connect to, and a silent
     // failure leaves a half-drawn wizard with no explanation.
@@ -112,22 +219,36 @@ async function refresh() {
   const hasServers = servers.length > 0;
 
   serversSection.hidden = !hasServers;
+  // First run shows the connect cards straight away; after that they wait
+  // behind "+".
+  addSection.hidden = hasServers && !adding;
   headline.textContent = hasServers ? 'Hasht' : 'Welcome to Hasht';
-  tagline.textContent = hasServers
-    ? 'Pick a server or add another.'
-    : 'Choose how you want to connect.';
+  tagline.textContent = hasServers ? 'Pick a server to open.' : 'Choose how you want to connect.';
   addHeading.textContent = hasServers ? 'Add a server' : 'Connect';
 
-  // On first run, nudge toward the hosted option; once the user has servers,
-  // nothing is pre-expanded.
+  // On first run, nudge toward the hosted option.
   if (!hasServers && !document.querySelector('.card.selected')) {
     el('card-hosted').classList.add('selected');
   }
 
-  serversEl.replaceChildren(...servers.map((server) => renderServer(server, activeId)));
+  if (openRow && !servers.some((s) => s.id === openRow)) openRow = null;
+  serversEl.replaceChildren(...servers.map((server) => renderServer(server, activeId, defaultId)));
 }
 
+// The bars keep whatever the last instance page set; match them to this page,
+// which follows the system theme. Colors are --bg-rail from bootstrap.css.
+const dark = matchMedia('(prefers-color-scheme: dark)');
+async function paintBars() {
+  try {
+    await ServerConfig.setTheme({
+      theme: dark.matches ? 'dark' : 'light',
+      color: dark.matches ? '#0e0f11' : '#e8eaec',
+    });
+  } catch {
+    // Cosmetic: the picker works without it.
+  }
+}
+dark.addEventListener('change', () => void paintBars());
+void paintBars();
+
 void refresh();
-
-
-
