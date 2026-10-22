@@ -15,8 +15,8 @@ import java.util.Set;
 final class PushOrder {
     static final long TTL = 24 * 60 * 60 * 1000L;
     static final long RETENTION = TTL + 2 * 60 * 60 * 1000L;
-    static final int MAX_CHANNELS = 2048;
-    static final int MAX_ORIGIN_CHANNELS = 128;
+    static final int MAX_CHANNELS = 8192;
+    static final int MAX_ORIGIN_CHANNELS = 1024;
     static final int MAX_TOMBSTONES = 32;
 
     static final class Entry {
@@ -53,6 +53,9 @@ final class PushOrder {
             boolean ordered = created > 0 && version >= created && issued > 0 && !ids.isEmpty();
             if (issued > 0 && (issued + TTL < now || issued > now + 5 * 60 * 1000L)) return false;
             if (cutoffs.containsKey(origin) && (!ordered || issued <= cutoffs.get(origin))) return false;
+            String channelTag = tag.split("/message:", 2)[0];
+            Entry channel = channels.get(key(origin, channelTag));
+            if (!channelTag.equals(tag) && channel != null && issued > 0 && issued <= channel.cleared) return false;
             String key = key(origin, tag);
             Entry entry = channels.get(key);
             if (entry == null) {
@@ -119,6 +122,13 @@ final class PushOrder {
         }
 
         void clear(String origin, String tag, long now) {
+            for (Entry child : channels.values()) {
+                if (origin.equals(child.origin) && child.tag.startsWith(tag + "/message:")) {
+                    child.removed = true;
+                    child.cleared = now;
+                    child.expires = now + RETENTION;
+                }
+            }
             Entry entry = channels.get(key(origin, tag));
             if (entry != null) {
                 entry.removed = true;

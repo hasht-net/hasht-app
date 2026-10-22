@@ -24,7 +24,7 @@ class NotificationService: UNNotificationServiceExtension {
            let message = PushMessage.open(enc: enc, registrations: PushKeychain.load()) {
             if let title = message.title { content.title = title }
             if let body = message.body { content.body = body }
-            if let tag = message.tag { content.threadIdentifier = message.key + " " + tag }
+            if let tag = message.tag { content.threadIdentifier = message.key + " " + (tag.components(separatedBy: "/message:").first ?? tag) }
             content.userInfo = message.userInfo
         }
         contentHandler(content)

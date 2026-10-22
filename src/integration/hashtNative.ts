@@ -119,6 +119,12 @@ export async function clearNativeChannel(tag: string): Promise<void> {
   await capacitor()?.Plugins?.NativePush?.clearChannel({ tag });
 }
 
+/** After an authenticated read snapshot, repair missed background recalls. */
+export async function reconcileNativeReads(reads: { tag: string; through: number }[]): Promise<void> {
+  if (!isNativeShell()) return;
+  await capacitor()?.Plugins?.NativePush?.reconcileReads?.({ reads });
+}
+
 /** Android overflow recovery. Old shells and iOS have no recovery callback. */
 export async function nativePushRecovery(): Promise<{ origin: string; generation: number } | null> {
   const recovery = await capacitor()?.Plugins?.NativePush?.recoveryNeeded?.() as

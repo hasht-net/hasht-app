@@ -21,6 +21,7 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "register", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "unregister", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "reconcileReads", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clearChannel", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "openSettings", returnType: CAPPluginReturnPromise)
     ]
@@ -139,6 +140,28 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
         }
     }
 
+    /// Repair missed silent pushes using an authenticated read snapshot.
+    @objc func reconcileReads(_ call: CAPPluginCall) {
+        let reads = call.getArray("reads", JSObject.self) ?? []
+        Task {
+            guard let origin = await pageOrigin() else { call.resolve(); return }
+            let center = UNUserNotificationCenter.current()
+            let delivered = await center.deliveredNotifications()
+            let doomed = delivered.filter { note in
+                let info = note.request.content.userInfo
+                guard (info["accountKey"] as? String ?? info["origin"] as? String) == origin,
+                      let tag = info["tag"] as? String,
+                      let created = info["created"] as? Double else { return false }
+                let channelTag = tag.components(separatedBy: "/message:").first ?? tag
+                return reads.contains { read in
+                    read["tag"] as? String == channelTag && created <= (read["through"] as? Double ?? 0)
+                }
+            }
+            center.removeDeliveredNotifications(withIdentifiers: doomed.map { $0.request.identifier })
+            call.resolve()
+        }
+    }
+
     // MARK: - From the shell
 
     /// Drops this instance's registration: relay row, keys and its delivered
@@ -180,7 +203,12 @@ public class NativePushPlugin: CAPPlugin, CAPBridgedPlugin, NotificationHandlerP
             let doomed = delivered.filter { note in
                 let info = note.request.content.userInfo
                 guard (info["accountKey"] as? String ?? info["origin"] as? String) == origin else { return false }
-                if let tag = tag, info["tag"] as? String != tag { return false }
+                if let tag = tag {
+                    let shownTag = info["tag"] as? String ?? ""
+                    let channelTag = tag.components(separatedBy: "/message:").first ?? tag
+                    let shownChannel = shownTag.components(separatedBy: "/message:").first ?? shownTag
+                    if channelTag != shownChannel { return false }
+                }
                 if ids.isEmpty { return true }
                 return !Set(info["ids"] as? [String] ?? []).isDisjoint(with: ids)
             }

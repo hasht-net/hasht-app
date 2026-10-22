@@ -20,6 +20,23 @@ public class PushOrderTest {
         return PushOrder.State.decode(state.encode());
     }
 
+    @Test public void individualMessagesSurviveReorderingAndChannelClear() throws Exception {
+        PushOrder.State state = new PushOrder.State();
+        String first = TAG + "/message:" + A;
+        String second = TAG + "/message:" + B;
+        assertTrue(state.accept(ORIGIN, second, "message", Collections.singletonList(B), 2, 2, NOW, NOW));
+        assertTrue(state.accept(ORIGIN, first, "message", Collections.singletonList(A), 1, 1, NOW, NOW));
+        assertTrue(state.accept(ORIGIN, first, "remove", Collections.singletonList(A), 1, 1, NOW, NOW));
+        state = restart(state);
+        assertFalse(state.accept(ORIGIN, first, "message", Collections.singletonList(A), 1, 1, NOW, NOW));
+        assertTrue(state.accept(ORIGIN, second, "update", Collections.singletonList(B), 2, 3, NOW, NOW));
+        state.clear(ORIGIN, TAG, NOW);
+        state = restart(state);
+        assertFalse(state.accept(ORIGIN, second, "update", Collections.singletonList(B), 2, 4, NOW, NOW));
+        assertFalse(state.accept(ORIGIN, TAG + "/message:new", "message", Collections.singletonList("new"), 3, 3, NOW, NOW));
+        assertTrue(state.accept(ORIGIN, TAG + "/message:new", "message", Collections.singletonList("new"), 3, 3, NOW + 1, NOW + 1));
+    }
+
     @Test public void newerChannelMessageWinsAcrossRestartAndOutOfOrderEdits() throws Exception {
         PushOrder.State state = new PushOrder.State();
         assertTrue(event(state, "message", A, 1, 1));

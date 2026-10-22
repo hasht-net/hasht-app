@@ -111,16 +111,23 @@ the extension through the App Group Keychain (`group.net.hasht.app`); Android
 keys are wrapped with Android Keystore. Tapping a notification switches to its
 instance. The active instance does not show foreground banners.
 
-Android replaces notifications by instance and channel, and keeps ordering
-state to suppress duplicates, late updates, and withdrawn messages. If FCM
+With a supporting backend, each message has its own notification identity.
+iOS groups messages by account and conversation; Android leaves grouping to
+the system. Older backends still replace a channel's notification. Android keeps
+bounded ordering state to suppress duplicates, late updates, and withdrawn messages. If FCM
 reports dropped events, the app clears stale notifications and asks the user
 to open Hasht to catch up. The frontend acknowledges recovery after loading
 authenticated channel and unread state. Older backends without ordering
 metadata have best-effort behavior.
 
-iOS uses APNs collapse IDs per channel. Notification removals use background
-pushes, so delivery is best effort and does not work when the app is
-force-quit. APNs keeps only one offline notification per app and device.
+Notification removals use background pushes, so immediate clearing on iOS is
+best effort and does not work when the app is force-quit. After reconnecting,
+the frontend supplies authenticated read markers to `reconcileReads`, which
+clears delivered notifications at or before each marker without clearing newer
+messages. This fallback requires the updated frontend and native app. Push
+providers may coalesce or drop offline deliveries; the unread feed remains the
+complete record. Native catch-up sends at most the latest 20 queued messages
+individually, rather than a count-only summary.
 
 ### Calls in the background
 

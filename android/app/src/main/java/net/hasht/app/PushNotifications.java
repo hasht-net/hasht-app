@@ -22,9 +22,8 @@ import org.json.JSONObject;
 /**
  * Turns a decrypted push into a notification, or withdraws one.
  *
- * Notifications are keyed by tag `<origin> <payload tag>`, so a newer message
- * in a channel replaces the older one in place, and two instances never
- * collide.
+ * Notifications are keyed by account and payload tag. New backends provide
+ * one tag per message; older backends replace the channel notification.
  */
 final class PushNotifications {
     private PushNotifications() {}
@@ -140,6 +139,8 @@ final class PushNotifications {
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         Bundle extras = new Bundle();
+        extras.putLong("net.hasht.app.push.created", message.created);
+        extras.putString("net.hasht.app.push.tag", message.tag);
         extras.putString(EXTRA_ORIGIN, message.origin);
         extras.putString(EXTRA_IDS, TextUtils.join(",", message.ids));
 
@@ -173,12 +174,39 @@ final class PushNotifications {
         for (StatusBarNotification shown : manager.getActiveNotifications()) {
             Bundle extras = shown.getNotification().extras;
             if (!origin.equals(extras.getString(EXTRA_ORIGIN))) continue;
-            if (tag != null && !(origin + " " + tag).equals(shown.getTag())) continue;
+            if (tag != null) {
+                String expected = origin + " " + tag.split("/message:", 2)[0];
+                String shownTag = shown.getTag();
+                if (shownTag == null || !expected.equals(shownTag.split("/message:", 2)[0])) continue;
+            }
             if (!ids.isEmpty()) {
                 String shownIds = extras.getString(EXTRA_IDS, "");
                 if (Collections.disjoint(Arrays.asList(shownIds.split(",")), ids)) continue;
             }
             manager.cancel(shown.getTag(), shown.getId());
+        }
+    }
+
+    static synchronized void reconcileReads(Context context, String origin, org.json.JSONArray reads) {
+        NotificationManager manager = context.getSystemService(NotificationManager.class);
+        if (manager == null) return;
+        for (StatusBarNotification shown : manager.getActiveNotifications()) {
+            Bundle extras = shown.getNotification().extras;
+            if (!origin.equals(extras.getString(EXTRA_ORIGIN))) continue;
+            long created = extras.getLong("net.hasht.app.push.created", 0);
+            String tag = extras.getString("net.hasht.app.push.tag", "");
+            if (created <= 0) continue;
+            String channelTag = tag.split("/message:", 2)[0];
+            for (int i = 0; i < reads.length(); i++) {
+                org.json.JSONObject read = reads.optJSONObject(i);
+                if (read != null && channelTag.equals(read.optString("tag")) && created <= read.optDouble("through", 0)) {
+                    List<String> ids = Arrays.asList(extras.getString(EXTRA_IDS, "").split(","));
+                    state(context).accept(origin, tag, "remove", ids, created, created,
+                        System.currentTimeMillis(), System.currentTimeMillis());
+                    if (save(context)) manager.cancel(shown.getTag(), shown.getId());
+                    break;
+                }
+            }
         }
     }
 

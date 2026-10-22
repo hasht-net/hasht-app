@@ -52,6 +52,14 @@ public class NativePushPlugin extends Plugin {
     // --- From the page
 
     @PluginMethod
+    public void reconcileReads(PluginCall call) {
+        String origin = activeAccountKey(getContext());
+        if (origin != null) PushNotifications.reconcileReads(getContext(), origin,
+            call.getArray("reads", new com.getcapacitor.JSArray()));
+        call.resolve();
+    }
+
+    @PluginMethod
     public void openSettings(PluginCall call) {
         getActivity().runOnUiThread(() -> {
             Intent details = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
