@@ -45,6 +45,14 @@ returns to the picker and keeps the instance in the saved list.
 `ServerConfig.signOut()` clears that instance's notifications, badge, and push
 registration without navigating.
 
+If the remote page returns an HTTP error, cannot connect, or never finishes
+loading, native recovery controls offer **Retry** and **Servers** without
+requiring any JavaScript from that server. Returning to the picker preserves
+saved entries and their sessions. On Android, Back during a pending or failed
+load also returns to the picker. A same-origin HTTP 200 page must mount the
+chat UI before loading is considered complete; external SSO pages are allowed
+to load normally.
+
 On iOS, a left-edge swipe can return to the picker through WebView history.
 Android back first sends an Escape key event to the page. If the page does not
 handle it, back walks WebView history, then backgrounds the app.

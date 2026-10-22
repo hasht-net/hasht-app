@@ -626,8 +626,12 @@ public class ServerConfigPlugin extends Plugin {
     }
 
     private void returnToWizard() {
-        setActiveId(null);
-        restart();
+        returnToWizard(getActivity());
+    }
+
+    static void returnToWizard(android.app.Activity activity) {
+        activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY_ACTIVE).apply();
+        activity.runOnUiThread(activity::recreate);
     }
 
     /** Where links leaving the instance open; see LinkOpener. */

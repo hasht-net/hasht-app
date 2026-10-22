@@ -15,10 +15,38 @@ import com.getcapacitor.BridgeWebViewClient;
  */
 class HashtWebViewClient extends BridgeWebViewClient {
     private final Bridge bridge;
+    private final LoadRecovery recovery;
 
-    HashtWebViewClient(Bridge bridge) {
+    HashtWebViewClient(Bridge bridge, LoadRecovery recovery) {
         super(bridge);
         this.bridge = bridge;
+        this.recovery = recovery;
+    }
+
+    @Override
+    public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+        super.onPageStarted(view, url, favicon);
+        recovery.started(url);
+    }
+
+    @Override
+    public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) {
+        super.onReceivedHttpError(view, request, response);
+        if (request.isForMainFrame() && response.getStatusCode() >= 400)
+            recovery.error(request.getUrl().toString(), "The server returned HTTP " + response.getStatusCode() + ".");
+    }
+
+    @Override
+    public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
+        super.onReceivedError(view, request, error);
+        if (request.isForMainFrame() && !error.getDescription().toString().contains("ERR_ABORTED"))
+            recovery.error(request.getUrl().toString(), "Check the address and your connection.");
+    }
+
+    @Override
+    public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler, android.net.http.SslError error) {
+        super.onReceivedSslError(view, handler, error);
+        recovery.error(error.getUrl(), "The server's secure connection could not be verified.");
     }
 
     // The frontend is remote, so its stylesheet can't be changed from here.
@@ -40,6 +68,7 @@ class HashtWebViewClient extends BridgeWebViewClient {
     public void onPageFinished(WebView view, String url) {
         super.onPageFinished(view, url);
         view.evaluateJavascript(NO_TAP_HIGHLIGHT, null);
+        recovery.finished(url);
     }
 
     @Override
