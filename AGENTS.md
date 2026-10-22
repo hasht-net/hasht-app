@@ -17,6 +17,9 @@ frontend from a user-configured instance.
 - `capacitor.config.ts` — no static `server.url`; the instance is runtime-chosen.
 - `ios/App/App/ServerConfigPlugin.swift`, `android/.../ServerConfigPlugin.java`
   — the native halves of `ServerConfig`.
+- `ios/App/App/DeepLinks.swift`, `android/.../DeepLinks.java` — which saved
+  server a link opens in (pure, tested). Keep the twins in step. See README,
+  "Links into the app".
 - `ios/App/App/NativeAuthPlugin.swift`, `android/.../NativeAuthPlugin.java` —
   passkey sign-in via the browser handoff. See README, "Signing in".
 - `NativePush` — push through the relay. See README, "Push".
@@ -71,6 +74,7 @@ npx tsc --noEmit
 npm run build
 scripts/test-webpush-ios.sh
 scripts/test-share-ios.sh
+scripts/test-deeplinks-ios.sh
 cd android && ./gradlew :app:compileDebugJavaWithJavac :app:testDebugUnitTest
 cd ios/App && xcodebuild -scheme App -destination 'generic/platform=iOS' \
   -configuration Debug CODE_SIGNING_ALLOWED=NO build

@@ -9,6 +9,14 @@ private struct ServerEntry: Codable {
     let url: String
     var name: String
     var legacySession: Bool? = nil
+    /// Who the page last reported signed in here (`setAccount`). Names only.
+    var username: String? = nil
+    var displayName: String? = nil
+}
+
+extension Notification.Name {
+    /// A link tapped inside the webview that belongs to a saved server.
+    static let hashtRouteLink = Notification.Name("net.hasht.app.routeLink")
 }
 
 /// The servers the user has added, and which one the webview is pointed at.
@@ -34,11 +42,14 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "reset", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setTheme", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getLinkMode", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "setLinkMode", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "setLinkMode", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setAccount", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setDefault", returnType: CAPPluginReturnPromise)
     ]
 
     private static let serversKey = "net.hasht.app.servers"
     private static let activeKey = "net.hasht.app.activeServerId"
+    private static let defaultKey = "net.hasht.app.defaultServerId"
 
     private var servers: [ServerEntry] {
         get {
@@ -72,7 +83,20 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         set { UserDefaults.standard.set(newValue, forKey: Self.activeKey) }
     }
 
+    /// Where a link goes when several entries share its origin. Links only;
+    /// launching still reopens the last active entry.
+    private var defaultId: String? {
+        get { UserDefaults.standard.string(forKey: Self.defaultKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.defaultKey) }
+    }
+
     override public func load() {
+        // Universal links, the Smart App Banner (an https URL through
+        // openURLContexts), `hasht://open`, and links tapped in the webview.
+        // Capacitor replays a cold start's links once plugins have loaded.
+        for name in [Notification.Name.capacitorOpenURL, .capacitorOpenUniversalLink, .hashtRouteLink] {
+            NotificationCenter.default.addObserver(self, selector: #selector(linkOpened(_:)), name: name, object: nil)
+        }
         guard let active = servers.first(where: { $0.id == activeId }) else { return }
         load(active.url)
     }
@@ -147,6 +171,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     /// receiving the last one's messages.
     @objc func signOut(_ call: CAPPluginCall) {
         ShareSession.save(nil)
+        if let id = activeId { setAccount(id: id, username: nil, displayName: nil) }
         if let push = bridge?.plugin(withName: "NativePush") as? NativePushPlugin,
            let key = activePushKey {
             Task { @MainActor in await push.unregister(origin: key) }
@@ -163,9 +188,41 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func list(_ call: CAPPluginCall) {
         call.resolve([
-            "servers": servers.map { ["id": $0.id, "url": $0.url, "name": $0.name] },
-            "activeId": activeId as Any
+            "servers": servers.map {
+                ["id": $0.id, "url": $0.url, "name": $0.name,
+                 "username": $0.username as Any, "displayName": $0.displayName as Any]
+            },
+            "activeId": activeId as Any,
+            "defaultId": defaultId as Any
         ])
+    }
+
+    /// The page reports who is signed in on the active entry; null names clear it.
+    @objc func setAccount(_ call: CAPPluginCall) {
+        let username = call.getString("username").flatMap { $0.isEmpty ? nil : $0 }
+        let displayName = call.getString("displayName").flatMap { $0.isEmpty ? nil : $0 }
+        if let id = activeId { setAccount(id: id, username: username, displayName: displayName) }
+        call.resolve()
+    }
+
+    private func setAccount(id: String, username: String?, displayName: String?) {
+        servers = servers.map {
+            guard $0.id == id else { return $0 }
+            var entry = $0
+            entry.username = username
+            entry.displayName = username == nil ? nil : displayName
+            return entry
+        }
+    }
+
+    @objc func setDefault(_ call: CAPPluginCall) {
+        let id = call.getString("id")
+        if let id, !servers.contains(where: { $0.id == id }) {
+            call.reject("unknown server")
+            return
+        }
+        defaultId = id
+        call.resolve()
     }
 
     @objc func add(_ call: CAPPluginCall) {
@@ -266,6 +323,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         servers = servers.filter { $0.id != id }
+        if defaultId == id { defaultId = nil }
         if activeId == id {
             ShareSession.save(nil)
             activeId = nil
@@ -281,7 +339,12 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("id and a non-empty name are required")
             return
         }
-        servers = servers.map { $0.id == id ? ServerEntry(id: $0.id, url: $0.url, name: name, legacySession: $0.legacySession) : $0 }
+        servers = servers.map {
+            guard $0.id == id else { return $0 }
+            var entry = $0
+            entry.name = name
+            return entry
+        }
         call.resolve()
     }
 
@@ -314,7 +377,11 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
               LinkOpener.leavesApp(url, app: app)
         else { return nil }
         DispatchQueue.main.async { [weak self] in
-            LinkOpener.open(url, from: self?.bridge?.viewController)
+            if self?.ownsLink(url) == true {
+                NotificationCenter.default.post(name: .hashtRouteLink, object: ["url": url])
+            } else {
+                LinkOpener.open(url, from: self?.bridge?.viewController)
+            }
         }
         return true
     }
@@ -330,6 +397,98 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         LinkOpener.mode = mode
         call.resolve()
+    }
+
+    // MARK: - Links
+
+    @objc private func linkOpened(_ notification: Notification) {
+        guard let url = (notification.object as? [String: Any])?["url"] as? URL,
+              let target = DeepLinks.target(url)
+        else { return }
+        DispatchQueue.main.async { self.route(target) }
+    }
+
+    /// A routed link inside the webview: one that belongs to a saved server,
+    /// or to the hosted instance, which a link may always add.
+    func ownsLink(_ url: URL) -> Bool {
+        guard DeepLinks.isRoutedPath(URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? ""),
+              let target = DeepLinks.target(url)
+        else { return false }
+        return target.origin == DeepLinks.hostedOrigin
+            || servers.contains { URL(string: $0.url).map(Self.originKey) == target.origin }
+    }
+
+    private func route(_ target: DeepLinks.Target) {
+        let entries = servers.map { DeepLinks.Entry(id: $0.id, url: $0.url) }
+        switch DeepLinks.decide(target, entries: entries, defaultId: defaultId) {
+        case .open(let id):
+            open(target, in: id)
+        case .addHosted:
+            addAndOpen(target)
+        case .confirmAdd:
+            let host = target.url.host ?? target.origin
+            let alert = UIAlertController(
+                title: "Open \(host)?",
+                message: "Add \(host) to your servers and open this link?",
+                preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            alert.addAction(UIAlertAction(title: "Add and open", style: .default) { _ in self.addAndOpen(target) })
+            present(alert)
+        case .choose(let ids):
+            choose(target, among: ids, remember: false)
+        }
+    }
+
+    /// Picking an entry opens there; "Always use…" asks again and saves the
+    /// pick as the default.
+    private func choose(_ target: DeepLinks.Target, among ids: [String], remember: Bool) {
+        let sheet = UIAlertController(
+            title: remember ? "Always open links in" : "Open in which account?",
+            message: target.url.host,
+            preferredStyle: .actionSheet)
+        for entry in servers where ids.contains(entry.id) {
+            let account = entry.username.map { "@\($0)" } ?? "Not signed in"
+            sheet.addAction(UIAlertAction(title: "\(entry.name) · \(account)", style: .default) { _ in
+                if remember { self.defaultId = entry.id }
+                self.open(target, in: entry.id)
+            })
+        }
+        if !remember {
+            sheet.addAction(UIAlertAction(title: "Always use…", style: .default) { _ in
+                self.choose(target, among: ids, remember: true)
+            })
+        }
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        present(sheet)
+    }
+
+    private func open(_ target: DeepLinks.Target, in id: String) {
+        if id == activeId {
+            load(target.url.absoluteString)
+        } else {
+            activate(id, loading: target.url.absoluteString)
+        }
+    }
+
+    private func addAndOpen(_ target: DeepLinks.Target) {
+        guard let base = URL(string: target.origin) else { return }
+        fetchName(base: base) { name in
+            DispatchQueue.main.async {
+                let id = self.addServer(url: target.origin, name: name ?? base.host ?? "Hasht")
+                self.activate(id, loading: target.url.absoluteString)
+            }
+        }
+    }
+
+    private func present(_ controller: UIAlertController) {
+        guard var top = bridge?.viewController else { return }
+        while let next = top.presentedViewController { top = next }
+        if let popover = controller.popoverPresentationController {
+            popover.sourceView = top.view
+            popover.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.midY, width: 0, height: 0)
+            popover.permittedArrowDirections = []
+        }
+        top.present(controller, animated: true)
     }
 
     /// Back to the wizard without forgetting anything — sign-out, or an

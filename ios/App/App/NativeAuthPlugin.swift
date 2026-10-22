@@ -62,8 +62,16 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
             call.reject("No server is selected.")
             return
         }
+        // The page's Register tab and invite: they only pick the browser's tab
+        // and fill its invite field, so a code that isn't one is dropped.
+        var query: [URLQueryItem] = []
+        if let invite = call.getString("invite"),
+           invite.range(of: "^[A-Za-z0-9]{1,32}$", options: .regularExpression) != nil {
+            query.append(URLQueryItem(name: "invite", value: invite))
+        }
+        if call.getBool("register") == true { query.append(URLQueryItem(name: "register", value: "1")) }
         // The user just tapped Sign in on this server's own page: nothing to confirm.
-        run(base: base, confirmHost: false) { result in
+        run(base: base, confirmHost: false, query: query) { result in
             switch result {
             case .success(let auth):
                 call.resolve(["auth": auth])
@@ -133,7 +141,8 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
     // MARK: - The handoff
 
     private func run(
-        base: URL, confirmHost: Bool, completion: @escaping (Result<[String: Any], Failure>) -> Void
+        base: URL, confirmHost: Bool, query: [URLQueryItem] = [],
+        completion: @escaping (Result<[String: Any], Failure>) -> Void
     ) {
         DispatchQueue.main.async {
             guard !self.busy else {
@@ -154,7 +163,7 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
                     done(.failure(failure))
                 case .success(let handoff):
                     let proceed = {
-                        self.openBrowser(base: base, handoff: handoff) { code in
+                        self.openBrowser(base: base, handoff: handoff, query: query) { code in
                             switch code {
                             case .failure(let failure):
                                 done(.failure(failure))
@@ -212,11 +221,12 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
     }
 
     private func openBrowser(
-        base: URL, handoff: Handoff, completion: @escaping (Result<String, Failure>) -> Void
+        base: URL, handoff: Handoff, query: [URLQueryItem],
+        completion: @escaping (Result<String, Failure>) -> Void
     ) {
         var target = URLComponents(url: base, resolvingAgainstBaseURL: false)
         target?.path = "/"
-        target?.queryItems = [URLQueryItem(name: "native_auth", value: handoff.requestId)]
+        target?.queryItems = [URLQueryItem(name: "native_auth", value: handoff.requestId)] + query
         guard let url = target?.url else {
             completion(.failure(.message("Couldn't open sign-in.")))
             return

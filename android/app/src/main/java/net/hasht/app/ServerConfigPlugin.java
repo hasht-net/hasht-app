@@ -1,6 +1,8 @@
 package net.hasht.app;
 
+import android.app.AlertDialog;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
@@ -32,6 +34,8 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -56,6 +60,11 @@ public class ServerConfigPlugin extends Plugin {
     private static final String PREFS = "net.hasht.app";
     private static final String KEY_SERVERS = "servers";
     private static final String KEY_ACTIVE = "activeServerId";
+    /** Where a link goes when several entries share its origin. Links only. */
+    private static final String KEY_DEFAULT = "defaultServerId";
+
+    /** A link to load once the activity is back up on the entry it belongs to. */
+    private static volatile String pendingLinkUrl;
 
     static SharedPreferences prefs(Context context) {
         return context.getSharedPreferences(PREFS, 0);
@@ -92,6 +101,165 @@ public class ServerConfigPlugin extends Plugin {
     @Override
     public void load() {
         bridge.injectScriptBeforeLoad("native/account-session.js");
+        String pending = pendingLinkUrl;
+        JSONObject active = activeServer(getContext());
+        if (pending != null && active != null
+            && originKey(Uri.parse(pending)).equals(originKey(Uri.parse(active.optString("url"))))) {
+            pendingLinkUrl = null;
+            // Posted: runs after the bridge's own first load, and replaces it.
+            bridge.getWebView().post(() -> bridge.getWebView().loadUrl(pending));
+        }
+    }
+
+    // --- Links: App Links, hasht://open, and links tapped in the webview
+
+    /** BridgeActivity also routes the launch intent through here on a cold start. */
+    @Override
+    protected void handleOnNewIntent(Intent intent) {
+        if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction()) || intent.getData() == null) return;
+        DeepLinks.Target target = DeepLinks.target(intent.getData().toString());
+        if (target == null) return;
+        // Consumed: recreate() reuses this intent, and must not replay it.
+        intent.setData(null);
+        route(target);
+    }
+
+    /** For HashtWebViewClient: routes the link if it belongs to a saved server or the hosted one. */
+    boolean routeIfOwned(Uri url) {
+        if (!DeepLinks.isRoutedPath(url.getEncodedPath())) return false;
+        DeepLinks.Target target = DeepLinks.target(url.toString());
+        if (target == null) return false;
+        boolean owned = DeepLinks.HOSTED_ORIGIN.equals(target.origin);
+        for (DeepLinks.Entry entry : entries()) {
+            if (target.origin.equals(originKey(Uri.parse(entry.url)))) owned = true;
+        }
+        if (!owned) return false;
+        route(target);
+        return true;
+    }
+
+    private List<DeepLinks.Entry> entries() {
+        List<DeepLinks.Entry> entries = new ArrayList<>();
+        JSONArray all = servers();
+        for (int i = 0; i < all.length(); i++) {
+            JSONObject entry = all.optJSONObject(i);
+            if (entry != null) entries.add(new DeepLinks.Entry(entry.optString("id"), entry.optString("url")));
+        }
+        return entries;
+    }
+
+    private void route(DeepLinks.Target target) {
+        DeepLinks.Decision decision = DeepLinks.decide(target, entries(), prefs().getString(KEY_DEFAULT, null));
+        getActivity().runOnUiThread(() -> {
+            switch (decision.kind) {
+                case OPEN:
+                    open(target, decision.id);
+                    break;
+                case ADD_HOSTED:
+                    addAndOpen(target);
+                    break;
+                case CONFIRM_ADD:
+                    String host = Uri.parse(target.origin).getHost();
+                    new AlertDialog.Builder(getActivity())
+                        .setTitle("Open " + host + "?")
+                        .setMessage("Add " + host + " to your servers and open this link?")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Add and open", (dialog, which) -> addAndOpen(target))
+                        .show();
+                    break;
+                case CHOOSE:
+                    choose(target, decision.ids, false);
+                    break;
+            }
+        });
+    }
+
+    /** Picking an entry opens there; "Always use…" asks again and saves the pick as the default. */
+    private void choose(DeepLinks.Target target, List<String> ids, boolean remember) {
+        List<String> labels = new ArrayList<>();
+        List<String> order = new ArrayList<>();
+        JSONArray all = servers();
+        for (int i = 0; i < all.length(); i++) {
+            JSONObject entry = all.optJSONObject(i);
+            if (entry == null || !ids.contains(entry.optString("id"))) continue;
+            String username = entry.optString("username", "");
+            labels.add(entry.optString("name") + " · " + (username.isEmpty() ? "Not signed in" : "@" + username));
+            order.add(entry.optString("id"));
+        }
+        AlertDialog.Builder dialog = new AlertDialog.Builder(getActivity())
+            .setTitle(remember ? "Always open links in" : "Open in which account?")
+            .setItems(labels.toArray(new String[0]), (d, which) -> {
+                if (remember) prefs().edit().putString(KEY_DEFAULT, order.get(which)).apply();
+                open(target, order.get(which));
+            })
+            .setNegativeButton("Cancel", null);
+        if (!remember) dialog.setNeutralButton("Always use…", (d, which) -> choose(target, ids, true));
+        dialog.show();
+    }
+
+    private void open(DeepLinks.Target target, String id) {
+        if (id.equals(activeId())) {
+            bridge.getWebView().loadUrl(target.url);
+            return;
+        }
+        setActiveId(id);
+        pendingLinkUrl = target.url;
+        restart();
+    }
+
+    private void addAndOpen(DeepLinks.Target target) {
+        new Thread(() -> {
+            String name = fetchName(target.origin);
+            try {
+                addAndActivate(getContext(), target.origin, name != null ? name : Uri.parse(target.origin).getHost());
+                pendingLinkUrl = target.url;
+                restart();
+            } catch (JSONException e) {
+                // Couldn't store it: the link just doesn't open.
+            }
+        }).start();
+    }
+
+    /** The page reports who is signed in on the active entry; null names clear it. */
+    @PluginMethod
+    public void setAccount(PluginCall call) {
+        String id = activeId();
+        if (id != null) setAccount(id, call.getString("username"), call.getString("displayName"));
+        call.resolve();
+    }
+
+    private void setAccount(String id, String username, String displayName) {
+        try {
+            JSONArray all = servers();
+            for (int i = 0; i < all.length(); i++) {
+                JSONObject entry = all.getJSONObject(i);
+                if (!entry.getString("id").equals(id)) continue;
+                boolean signedIn = username != null && !username.isEmpty();
+                entry.put("username", signedIn ? username : JSONObject.NULL);
+                entry.put("displayName", signedIn && displayName != null && !displayName.isEmpty() ? displayName : JSONObject.NULL);
+            }
+            saveServers(all);
+        } catch (JSONException e) {
+            // Names only: losing one just shows "Not signed in".
+        }
+    }
+
+    @PluginMethod
+    public void setDefault(PluginCall call) {
+        String id = call.getString("id");
+        try {
+            if (id != null && find(id) == null) {
+                call.reject("unknown server");
+                return;
+            }
+        } catch (JSONException e) {
+            call.reject("unknown server");
+            return;
+        }
+        SharedPreferences.Editor editor = prefs().edit();
+        if (id == null) editor.remove(KEY_DEFAULT); else editor.putString(KEY_DEFAULT, id);
+        editor.apply();
+        call.resolve();
     }
 
     static String pushKey(JSONObject entry) {
@@ -302,6 +470,8 @@ public class ServerConfigPlugin extends Plugin {
      */
     @PluginMethod
     public void signOut(PluginCall call) {
+        String active = activeId();
+        if (active != null) setAccount(active, null, null);
         String origin = NativePushPlugin.activeAccountKey(getContext());
         try {
             if (origin != null) NativePushPlugin.unregister(getContext(), origin);
@@ -316,6 +486,8 @@ public class ServerConfigPlugin extends Plugin {
         JSObject result = new JSObject();
         result.put("servers", servers());
         result.put("activeId", activeId());
+        String defaultId = prefs().getString(KEY_DEFAULT, null);
+        result.put("defaultId", defaultId != null ? defaultId : JSONObject.NULL);
         call.resolve(result);
     }
 
@@ -385,6 +557,7 @@ public class ServerConfigPlugin extends Plugin {
             }
             saveServers(kept);
             if (id.equals(activeId())) setActiveId(null);
+            if (id.equals(prefs().getString(KEY_DEFAULT, null))) prefs().edit().remove(KEY_DEFAULT).apply();
             call.resolve();
         } catch (JSONException e) {
             call.reject("could not remove that server");

@@ -157,9 +157,11 @@ export function canSignInWithBrowser(): boolean {
  * sheet and redeems the code; this resolves with the
  * server's `AuthResponse`, or null if the user cancelled.
  */
-export async function signInWithBrowser(): Promise<unknown | null> {
+export async function signInWithBrowser(
+  options: { invite?: string; register?: boolean } = {},
+): Promise<unknown | null> {
   try {
-    const { auth } = (await capacitor()?.Plugins?.NativeAuth?.signIn()) as { auth: unknown };
+    const { auth } = (await capacitor()?.Plugins?.NativeAuth?.signIn(options)) as { auth: unknown };
     return auth;
   } catch (error) {
     if ((error as { code?: string })?.code === 'cancelled') return null;
@@ -210,6 +212,22 @@ export async function endCallSession(): Promise<void> {
  */
 export async function forgetInstance(): Promise<void> {
   await capacitor()?.Plugins?.ServerConfig?.reset();
+}
+
+/**
+ * Who is signed in, for the shell's server list and link chooser. Call after
+ * sign-in, session restore and a rename; `null` on sign-out. Older shells lack
+ * it, so failures are ignored.
+ */
+export async function setAccount(account: { username: string; displayName: string } | null): Promise<void> {
+  try {
+    await capacitor()?.Plugins?.ServerConfig?.setAccount({
+      username: account?.username ?? null,
+      displayName: account?.displayName ?? null,
+    });
+  } catch {
+    // Older shell.
+  }
 }
 
 export type LinkMode = 'in-app' | 'system';

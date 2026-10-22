@@ -5,6 +5,9 @@ export interface ServerEntry {
   url: string;
   /** Defaults to the hostname when the user doesn't give one. */
   name: string;
+  /** Who the page last reported signed in here (`setAccount`); null when signed out or unknown. */
+  username?: string | null;
+  displayName?: string | null;
 }
 
 /**
@@ -24,7 +27,15 @@ export interface ServerConfigPlugin {
    * its `CORS_ALLOWED_ORIGINS`. Native HTTP has no such restriction.
    */
   probe(options: { url: string }): Promise<{ name: string }>;
-  list(): Promise<{ servers: ServerEntry[]; activeId: string | null }>;
+  /** `defaultId`: where a link goes when several entries share its origin. */
+  list(): Promise<{ servers: ServerEntry[]; activeId: string | null; defaultId: string | null }>;
+  /** Sets or clears (`id: null`) the default entry for links. Cleared on `remove`. */
+  setDefault(options: { id: string | null }): Promise<void>;
+  /**
+   * The page reports who is signed in on the active entry, for the picker and
+   * the link chooser. Names only, never a token; nulls clear it, as `signOut` does.
+   */
+  setAccount(options: { username: string | null; displayName: string | null }): Promise<void>;
   /** Adds a fresh account entry, makes it active, and loads it. Duplicate URLs are allowed. */
   add(options: { url: string; name?: string }): Promise<{ server: ServerEntry }>;
   /** Switches to an already-added server and loads it. */

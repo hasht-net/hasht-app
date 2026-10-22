@@ -15,6 +15,7 @@
 		CD02559D1BE9371C1DF2384F /* ServerConfigPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 412739CF9AC8DBB47ABBDB8E /* ServerConfigPlugin.swift */; };
 		A1B2C3D4E5F60718293A4B5C /* NativeAuthPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F1E2D3C4B5A69788796A5B4 /* NativeAuthPlugin.swift */; };
 		B7C8D9E0F1A2B3C4D5E6F708 /* LinkOpener.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F708192A3B4C5 /* LinkOpener.swift */; };
+		9578C9AE60C94ABBBE9C067A /* DeepLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22BDA587C20B4CB19E1C38E6 /* DeepLinks.swift */; };
 		504EC30D1FED79650016851F /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30B1FED79650016851F /* Main.storyboard */; };
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
@@ -75,6 +76,7 @@
 		412739CF9AC8DBB47ABBDB8E /* ServerConfigPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerConfigPlugin.swift; sourceTree = "<group>"; };
 		0F1E2D3C4B5A69788796A5B4 /* NativeAuthPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAuthPlugin.swift; sourceTree = "<group>"; };
 		1A2B3C4D5E6F708192A3B4C5 /* LinkOpener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkOpener.swift; sourceTree = "<group>"; };
+		22BDA587C20B4CB19E1C38E6 /* DeepLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLinks.swift; sourceTree = "<group>"; };
 		504EC30C1FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
 		504EC30E1FED79650016851F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		504EC3111FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
@@ -157,6 +159,7 @@
 				412739CF9AC8DBB47ABBDB8E /* ServerConfigPlugin.swift */,
 				0F1E2D3C4B5A69788796A5B4 /* NativeAuthPlugin.swift */,
 				1A2B3C4D5E6F708192A3B4C5 /* LinkOpener.swift */,
+				22BDA587C20B4CB19E1C38E6 /* DeepLinks.swift */,
 				7A5E0000000000000000A002 /* NativePushPlugin.swift */,
 				7B5E0000000000000000A008 /* ShareSessionSync.swift */,
 				7A5E0000000000000000A006 /* App.entitlements */,
@@ -344,6 +347,7 @@
 				CD02559D1BE9371C1DF2384F /* ServerConfigPlugin.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5C /* NativeAuthPlugin.swift in Sources */,
 				B7C8D9E0F1A2B3C4D5E6F708 /* LinkOpener.swift in Sources */,
+				9578C9AE60C94ABBBE9C067A /* DeepLinks.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 				7A5E0000000000000000B003 /* NativePushPlugin.swift in Sources */,
 				7B5E0000000000000000B006 /* ShareSession.swift in Sources */,

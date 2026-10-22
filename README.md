@@ -53,6 +53,23 @@ Links to other origins open in a Safari sheet or Android Custom Tab by default.
 The frontend can select the system browser through `ServerConfig.setLinkMode()`.
 Instance redirects, including SSO, stay in the WebView.
 
+### Links into the app
+
+Invite and message links on `chat.hasht.net` open the app (iOS universal links,
+Android App Links; the backend serves the association files). Any instance's
+page can also hand its URL over with `hasht://open?url=<https URL>` or the iOS
+Smart App Banner. Links are untrusted: only `https`, reduced to the origin plus
+`/invite/<code>` or `/channels/<id>/<id>`, anything else opens the instance
+root.
+
+`DeepLinks` (Swift and Java twins) picks the entry: none on that origin adds
+`chat.hasht.net` silently and asks first for any other host; one opens there;
+several use the default (`ServerConfig.setDefault`) or ask, with "Always use…"
+to set it. Invite and message links tapped inside the WebView that belong to a
+saved server or `chat.hasht.net` go through the same router. The page reports
+the signed-in account with `ServerConfig.setAccount` so the chooser can show
+usernames.
+
 The shell exposes safe-area insets as
 `--hasht-safe-area-{top,right,bottom,left}`. The frontend should use these with
 `env(safe-area-inset-*)` as a fallback.
@@ -67,7 +84,8 @@ The backend's native auth flow uses PKCE, and approving in the browser needs a
 passkey or password step-up. The verifier stays in native code. See `docs/NATIVE_SIGN_IN.md` in the
 chat repo for the protocol.
 
-Sign-in starts through `NativeAuth.signIn()` or a
+Sign-in starts through `NativeAuth.signIn({ invite?, register? })` (both only
+shape the browser's form) or a
 `hasht://signin?server=<origin>` link. A link requires confirmation and only
 adds or switches the instance after sign-in succeeds. The page collects the
 result through `NativeAuth.takePendingAuth()`. Returning to the app while the
@@ -149,6 +167,7 @@ node --test scripts/account-session.test.mjs
 npm run build
 scripts/test-webpush-ios.sh
 scripts/test-share-ios.sh
+scripts/test-deeplinks-ios.sh
 (cd android && ./gradlew :app:compileDebugJavaWithJavac :app:testDebugUnitTest)
 (cd ios/App && xcodebuild -scheme App -destination 'generic/platform=iOS' \
   -configuration Debug CODE_SIGNING_ALLOWED=NO build)
@@ -248,7 +267,8 @@ CI supports exported signing files:
 | `IOS_SHARE_PROFILE` | Base64 profile for `net.hasht.app.ShareExtension` |
 
 All three profiles must use the distribution certificate and include App Group
-`group.net.hasht.app`. The app profile also needs production Push Notifications.
+`group.net.hasht.app`. The app profile also needs production Push Notifications
+and Associated Domains (`applinks:chat.hasht.net`).
 The workflow removes temporary signing files after Fastlane.
 
 Without `IOS_DISTRIBUTION_P12`, CI uses `fastlane match` in readonly mode. Set

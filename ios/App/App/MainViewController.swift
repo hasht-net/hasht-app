@@ -38,6 +38,7 @@ class MainViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(nativePush)
         if let webView = webView, let original = webView.uiDelegate {
             linkDelegate = LinkUIDelegate(wrapping: original, presenter: self)
+            linkDelegate?.serverConfig = serverConfig
             webView.uiDelegate = linkDelegate
         }
     }
