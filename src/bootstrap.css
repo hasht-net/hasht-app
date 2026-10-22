@@ -9,7 +9,7 @@
   --brand-hover: #313aa0;
   --radius-sm: 6px;
   --radius-md: 10px;
-  --radius-lg: 16px;
+  --radius-lg: 16px; /* Matches the chat sidebar’s top-left corner. */
   --glass-blur: blur(24px) saturate(180%);
 
   --bg-rail: #0e0f11;
@@ -90,7 +90,7 @@ body::before {
 .brand-mark {
   width: 56px;
   height: 56px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   display: block;
   margin: 0 auto 14px;
   filter: drop-shadow(0 8px 22px color-mix(in srgb, var(--brand) 40%, transparent));
@@ -137,7 +137,7 @@ h2 {
   height: 36px;
   flex: none;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   background: none;
   color: var(--text-muted);
   cursor: pointer;
@@ -151,7 +151,7 @@ h2 {
 .servers { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .server {
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--bg-input);
 }
 .server[data-active="true"] { border-color: var(--brand-text); }
@@ -215,7 +215,7 @@ h2 {
   font-size: 0.85rem;
   font-weight: 600;
   padding: 7px 12px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-strong);
   background: transparent;
   color: var(--text-bright);
@@ -229,7 +229,7 @@ h2 {
 
 .card {
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--bg-input);
   margin-bottom: 8px;
   overflow: hidden;
@@ -259,7 +259,7 @@ input {
   /* 16px: below that iOS zooms the page in on focus. */
   font-size: 16px;
   padding: 11px 12px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-strong);
   background: var(--bg-rail);
   color: var(--text-normal);
@@ -273,7 +273,7 @@ input:focus { outline: none; border-color: var(--brand-text); }
   width: 100%;
   padding: 12px;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   background: var(--brand);
   color: #fff;
   cursor: pointer;

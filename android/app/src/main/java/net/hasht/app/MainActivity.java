@@ -7,6 +7,7 @@ import androidx.activity.OnBackPressedCallback;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
+    private LoadRecovery loadRecovery;
     @Override
     protected void load() {
         android.webkit.WebView webView = findViewById(com.getcapacitor.android.R.id.webview);
@@ -49,13 +50,17 @@ public class MainActivity extends BridgeActivity {
             androidx.core.splashscreen.SplashScreen.installSplashScreen(this);
         }
         super.onCreate(savedInstanceState);
-        getBridge().setWebViewClient(new HashtWebViewClient(getBridge()));
+        loadRecovery = new LoadRecovery(this, getBridge().getWebView());
+        getBridge().setWebViewClient(new HashtWebViewClient(getBridge(), loadRecovery));
+        loadRecovery.started(getBridge().getAppUrl());
+        loadRecovery.finished(getBridge().getAppUrl());
 
         // The App plugin's own back handler is off (capacitor.config.ts); it
         // swallowed back with no history, which left users stuck on the picker.
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
+                if (loadRecovery.handleBack()) return;
                 WebView webView = getBridge().getWebView();
                 webView.evaluateJavascript(DISMISS_TOP_LAYER, handled -> {
                     if ("true".equals(handled)) return;
@@ -84,6 +89,12 @@ public class MainActivity extends BridgeActivity {
             + "(document.activeElement || document.body || document).dispatchEvent(e);"
             + "return e.defaultPrevented;"
             + "})()";
+
+    @Override
+    public void onDestroy() {
+        if (loadRecovery != null) loadRecovery.destroy();
+        super.onDestroy();
+    }
 
     /** Whether the app is on screen; pushes for the instance shown are skipped. */
     private static volatile boolean visible;
