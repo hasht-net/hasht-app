@@ -282,7 +282,14 @@ final class PushNotifications {
             if (orderStore.initialized()) orderState = orderStore.load();
             else {
                 String encoded = context.getSharedPreferences(ORDER_PREFS, Context.MODE_PRIVATE).getString(ORDER_KEY, null);
-                orderState = encoded == null ? new PushOrder.State() : PushOrder.State.decode(PushStore.unb64(encoded));
+                try {
+                    orderState = encoded == null ? new PushOrder.State() : PushOrder.State.decode(PushStore.unb64(encoded));
+                } catch (java.io.IOException | IllegalArgumentException corruptLegacyState) {
+                    orderState = new PushOrder.State();
+                    List<String> scopes = new ArrayList<>();
+                    for (PushStore.Registration reg : PushStore.load(context)) scopes.add(reg.scope());
+                    orderState.overflow(scopes, System.currentTimeMillis());
+                }
                 // Legacy device-clock cutoffs are not authoritative server read boundaries.
                 for (PushOrder.Entry entry : orderState.channels.values()) entry.cleared = 0;
                 orderState.dirty.addAll(orderState.channels.keySet());
@@ -293,7 +300,24 @@ final class PushNotifications {
             orderState = null;
             throw new IllegalStateException("could not load notification read state", failure);
         }
+        // Older releases posted notifications without server timestamps. Their read
+        // status cannot be proven; retire them on upgrade, including blank controls.
+        // Repeat on process startup so an interrupted cleanup is retried.
+        retireLegacyNotifications(context);
         return orderState;
+    }
+
+    private static void retireLegacyNotifications(Context context) {
+        NotificationManager manager = context.getSystemService(NotificationManager.class);
+        if (manager == null) return;
+        for (StatusBarNotification shown : manager.getActiveNotifications()) {
+            Bundle extras = shown.getNotification().extras;
+            if (LegacyNotificationMetadata.shouldRetire(extras.getString(EXTRA_ORIGIN),
+                    extras.containsKey("net.hasht.app.push.created"),
+                    extras.containsKey("net.hasht.app.push.tag"))) {
+                manager.cancel(shown.getTag(), shown.getId());
+            }
+        }
     }
 
     private static boolean save(Context context) {

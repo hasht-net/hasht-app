@@ -125,6 +125,12 @@ The frontend supplies read markers after reconnect and on local reads; push
 read controls coalesce a whole conversation read into one boundary. Markers
 use server message timestamps, never the phone's clock.
 
+On Android, the first push or read reconciliation after upgrading retires old
+notifications that lack server timestamp/tag metadata, including blank read
+controls posted by older versions. Their age and read status cannot be verified;
+current-format notifications are preserved. Corrupt legacy ordering snapshots
+migrate into explicit recovery state rather than blocking every future push.
+
 Immediate clearing on iOS remains best effort because background pushes may
 be skipped, especially after force-quit. The notification extension makes
 covered late alerts quiet/passive and repairs older delivered notifications;
