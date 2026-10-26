@@ -48,6 +48,10 @@ export interface ServerConfigPlugin {
    * not navigate.
    */
   signOut(): Promise<void>;
+  /** Opens a file in the native browser, even when its URL belongs to this instance. */
+  openAttachment(options: { url: string }): Promise<void>;
+  /** Streams a file to the native save/share UI. Cancelling resolves without an error. */
+  saveAttachment(options: { url: string; filename?: string }): Promise<{ cancelled?: boolean }>;
   /** Opens this instance’s security settings in a WebAuthn-capable browser. */
   openSecurityManagement(options: { ticket: string }): Promise<void>;
   openSecuritySettings(options: { userId: string }): Promise<void>;

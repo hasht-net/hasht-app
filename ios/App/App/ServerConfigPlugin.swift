@@ -33,6 +33,8 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "ServerConfigPlugin"
     public let jsName = "ServerConfig"
     public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "openAttachment", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "saveAttachment", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "probe", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "signOut", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "list", returnType: CAPPluginReturnPromise),
@@ -183,6 +185,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     /// call `NativePush.unregister` doesn't leave the next user's phone
     /// receiving the last one's messages.
     @objc func signOut(_ call: CAPPluginCall) {
+        attachmentGeneration.invalidate()
         ShareSession.save(nil)
         if let id = activeId { setAccount(id: id, username: nil, displayName: nil) }
         if let push = bridge?.plugin(withName: "NativePush") as? NativePushPlugin,
@@ -197,6 +200,68 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
             }
         }
         call.resolve()
+    }
+
+    private var attachmentSaving = false
+    private let attachmentGeneration = AttachmentActionGeneration()
+
+    private func attachmentURL(_ call: CAPPluginCall) -> (URL, String)? {
+        guard let active = activeServer, let base = URL(string: active.url),
+              let page = webView?.url, Self.originKey(page) == Self.originKey(base),
+              let raw = call.getString("url"), let url = AttachmentFileURL.parse(raw, secure: base.scheme == "https") else {
+            call.reject("Connect to a server and use a valid HTTP(S) attachment URL.")
+            return nil
+        }
+        return (url, active.id)
+    }
+
+    @objc func openAttachment(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let (url, _) = self.attachmentURL(call) else { return }
+            guard let presenter = self.bridge?.viewController else { call.reject("Could not open the attachment browser."); return }
+            var top = presenter
+            while let next = top.presentedViewController { top = next }
+            // A Safari sheet cannot route an instance URL back over the chat WebView.
+            top.present(SFSafariViewController(url: url), animated: true) { call.resolve() }
+        }
+    }
+
+    @objc func saveAttachment(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let (url, account) = self.attachmentURL(call) else { return }
+            guard !self.attachmentSaving else { call.reject("Finish the current attachment save first."); return }
+            self.attachmentSaving = true
+            let generation = self.attachmentGeneration.snapshot()
+            let transfer = AttachmentFileDownload()
+            transfer.start(url: url, filename: call.getString("filename")) { result in
+                DispatchQueue.main.async {
+                    switch result {
+                    case .failure(let error):
+                        self.attachmentSaving = false
+                        call.reject("Could not download the attachment. \(error.localizedDescription)")
+                    case .success(let file):
+                        guard self.attachmentGeneration.matches(generation), self.activeServer?.id == account, let presenter = self.bridge?.viewController else {
+                            try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+                            self.attachmentSaving = false
+                            call.reject("The active account changed. Save the attachment again.")
+                            return
+                        }
+                        var top = presenter
+                        while let next = top.presentedViewController { top = next }
+                        let sheet = UIActivityViewController(activityItems: [file], applicationActivities: nil)
+                        sheet.popoverPresentationController?.sourceView = top.view
+                        sheet.popoverPresentationController?.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.midY, width: 1, height: 1)
+                        sheet.completionWithItemsHandler = { _, completed, _, error in
+                            try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+                            self.attachmentSaving = false
+                            if let error { call.reject("Could not save the attachment. \(error.localizedDescription)") }
+                            else { call.resolve(["cancelled": !completed]) }
+                        }
+                        top.present(sheet, animated: true)
+                    }
+                }
+            }
+        }
     }
 
     /// A fixed same-instance destination; credentials never go in the URL.
@@ -265,6 +330,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         servers = servers.map {
             guard $0.id == id else { return $0 }
             var entry = $0
+            if entry.username != username { attachmentGeneration.invalidate() }
             entry.username = username
             entry.displayName = username == nil ? nil : displayName
             return entry
@@ -282,6 +348,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func add(_ call: CAPPluginCall) {
+        attachmentGeneration.invalidate()
         guard let raw = call.getString("url"),
               let url = URL(string: raw),
               let host = url.host, url.scheme != nil
@@ -349,6 +416,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Makes `id` active and loads it — at `url` if given, e.g. the message a
     /// tapped notification is about.
     func activate(_ id: String, loading url: String? = nil) {
+        attachmentGeneration.invalidate()
         guard let entry = servers.first(where: { $0.id == id }) else { return }
         activeId = id
         load(url ?? entry.url)
@@ -366,6 +434,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func connect(_ call: CAPPluginCall) {
+        attachmentGeneration.invalidate()
         guard let id = call.getString("id"), let entry = servers.first(where: { $0.id == id }) else {
             call.reject("unknown server")
             return
@@ -376,6 +445,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func remove(_ call: CAPPluginCall) {
+        attachmentGeneration.invalidate()
         guard let id = call.getString("id") else {
             call.reject("id is required")
             return
@@ -575,6 +645,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     /// instance that no longer answers and would otherwise leave the app
     /// pinned to a dead origin.
     @objc func reset(_ call: CAPPluginCall) {
+        attachmentGeneration.invalidate()
         returnToWizard()
         call.resolve()
     }
@@ -673,5 +744,76 @@ private final class AccountRemoval: NSObject, WKScriptMessageHandler, WKNavigati
         view.configuration.userContentController.removeScriptMessageHandler(forName: "removedAccount")
         self.view = nil
         done()
+    }
+}
+
+/// Signing out invalidates an action even when the saved server entry does not change.
+final class AttachmentActionGeneration {
+    private let lock = NSLock()
+    private var value = UUID()
+    func snapshot() -> UUID { lock.lock(); defer { lock.unlock() }; return value }
+    func invalidate() { lock.lock(); defer { lock.unlock() }; value = UUID() }
+    func matches(_ token: UUID) -> Bool { snapshot() == token }
+}
+
+/// Shared validation for the initial URL and every download redirect.
+enum AttachmentFileURL {
+    static func parse(_ raw: String, secure: Bool) -> URL? {
+        guard raw.utf8.count <= 16384, let parts = URLComponents(string: raw),
+              let scheme = parts.scheme?.lowercased(), scheme == "https" || (!secure && scheme == "http"),
+              let host = parts.host, !host.isEmpty, parts.user == nil, parts.password == nil else { return nil }
+        return parts.url
+    }
+
+    static func filename(_ raw: String?) -> String {
+        let invalid = CharacterSet.controlCharacters.union(CharacterSet(charactersIn: "/\\:"))
+        let name = (raw ?? "attachment").components(separatedBy: invalid).joined(separator: "_")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty || name == "." || name == ".." ? "attachment" : String(name.prefix(180))
+    }
+}
+
+/// URLSession writes directly to disk, so a large file never crosses the JS bridge.
+private final class AttachmentFileDownload: NSObject, URLSessionTaskDelegate {
+    private var secure = false
+    private var redirects = 0
+
+    func start(url: URL, filename: String?, completion: @escaping (Result<URL, Error>) -> Void) {
+        secure = url.scheme?.lowercased() == "https"
+        let config = URLSessionConfiguration.ephemeral
+        config.httpShouldSetCookies = false
+        config.httpCookieStorage = nil
+        config.urlCredentialStorage = nil
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 3600
+        let session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+        session.downloadTask(with: url) { file, response, error in
+            defer { session.finishTasksAndInvalidate() }
+            do {
+                if let error { throw error }
+                guard let response = response as? HTTPURLResponse, response.statusCode == 200, let file else {
+                    throw NSError(domain: "Attachment", code: 1, userInfo: [NSLocalizedDescriptionKey: "The attachment server refused the download."])
+                }
+                let folder = FileManager.default.temporaryDirectory.appendingPathComponent("attachment-" + UUID().uuidString, isDirectory: true)
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                let destination = folder.appendingPathComponent(AttachmentFileURL.filename(filename ?? response.suggestedFilename))
+                do { try FileManager.default.moveItem(at: file, to: destination) }
+                catch { try? FileManager.default.removeItem(at: folder); throw error }
+                completion(.success(destination))
+            } catch { completion(.failure(error)) }
+        }.resume()
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        redirects += 1
+        guard redirects <= 10, let raw = request.url?.absoluteString,
+              let url = AttachmentFileURL.parse(raw, secure: secure) else {
+            completionHandler(nil)
+            return
+        }
+        secure = secure || url.scheme?.lowercased() == "https"
+        // Construct a fresh request: no cookie or authorization header follows a redirect.
+        completionHandler(URLRequest(url: url))
     }
 }

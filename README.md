@@ -355,3 +355,18 @@ fragment and exchanges it for a ten-minute credential limited to passkey
 management, held only in memory. Browser logins stay untouched; enrollment still
 requires password/passkey verification. Requires the matching chat server change.
 `openSecuritySettings({ userId })` remains available for older server frontends.
+
+### Opening and saving attachments
+
+The remote frontend uses `ServerConfig.openAttachment({ url })` and
+`saveAttachment({ url, filename? })` for explicit file actions. Opening uses a
+browser sheet (Android also honors the system-browser preference), including
+same-instance URLs, so local/proxy storage never replaces the conversation.
+Saving streams bytes natively: iOS downloads to a temporary file and presents
+its save/share sheet; Android asks for a document destination and streams into
+it. Cancelling either picker is a successful cancelled result. No attachment
+bytes or account credentials cross the JavaScript bridge. Download redirects
+are limited to ten HTTP(S) hops and cannot downgrade HTTPS to HTTP.
+
+The companion chat frontend must be deployed after an app release containing
+these methods; older shells display an update message for file actions.
