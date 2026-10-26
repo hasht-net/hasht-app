@@ -407,9 +407,10 @@ final class ShareViewController: UIViewController, UITableViewDataSource, UITabl
     }
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         guard !sending && !attempted else { return }
-        selected = sections[indexPath.section].items[indexPath.row]
-        selectionTitle.text = selected?.name
-        selectionDetail.text = selected?.detail
+        let destination = sections[indexPath.section].items[indexPath.row]
+        selected = selected?.id == destination.id ? nil : destination
+        selectionTitle.text = selected?.name ?? "Choose a conversation"
+        selectionDetail.text = selected?.detail ?? "Select where to send your share"
         updateSendButton()
         table.reloadData()
         UISelectionFeedbackGenerator().selectionChanged()
