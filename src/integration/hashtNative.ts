@@ -318,3 +318,17 @@ export async function openNativeNotificationSettings(): Promise<void> {
   }
   await push.openSettings();
 }
+
+/** Explicit attachment actions never navigate the chat WebView or carry file bytes in JS. */
+export async function nativeAttachmentAction(
+  action: 'openAttachment' | 'saveAttachment', url: string, filename?: string,
+): Promise<void> {
+  const plugin = capacitor()?.Plugins?.ServerConfig;
+  if (!plugin?.[action]) throw new Error('Update the Hasht app to open and save attachments.');
+  try { await plugin[action]({ url: new URL(url, location.href).href, filename }); }
+  catch (error) {
+    if ((error as { code?: string })?.code === 'UNIMPLEMENTED')
+      throw new Error('Update the Hasht app to open and save attachments.');
+    throw error;
+  }
+}

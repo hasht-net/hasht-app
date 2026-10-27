@@ -1,6 +1,13 @@
 package net.hasht.app;
 
 import android.app.AlertDialog;
+import android.app.Activity;
+import android.provider.DocumentsContract;
+import androidx.activity.result.ActivityResult;
+import com.getcapacitor.annotation.ActivityCallback;
+import java.io.OutputStream;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -257,6 +264,8 @@ public class ServerConfigPlugin extends Plugin {
                 JSONObject entry = all.getJSONObject(i);
                 if (!entry.getString("id").equals(id)) continue;
                 boolean signedIn = username != null && !username.isEmpty();
+                if (!java.util.Objects.equals(entry.optString("username", null), signedIn ? username : null))
+                    attachmentGeneration.incrementAndGet();
                 entry.put("username", signedIn ? username : JSONObject.NULL);
                 entry.put("displayName", signedIn && displayName != null && !displayName.isEmpty() ? displayName : JSONObject.NULL);
             }
@@ -492,6 +501,7 @@ public class ServerConfigPlugin extends Plugin {
      */
     @PluginMethod
     public void signOut(PluginCall call) {
+        attachmentGeneration.incrementAndGet();
         String active = activeId();
         if (active != null) setAccount(active, null, null);
         String origin = NativePushPlugin.activeAccountKey(getContext());
@@ -515,6 +525,7 @@ public class ServerConfigPlugin extends Plugin {
 
     @PluginMethod
     public void add(PluginCall call) {
+        attachmentGeneration.incrementAndGet();
         String url = call.getString("url");
         Uri parsed = url == null ? null : Uri.parse(url);
         if (parsed == null || parsed.getScheme() == null || parsed.getHost() == null) {
@@ -548,6 +559,7 @@ public class ServerConfigPlugin extends Plugin {
 
     @PluginMethod
     public void connect(PluginCall call) {
+        attachmentGeneration.incrementAndGet();
         try {
             String id = call.getString("id");
             JSONObject entry = id == null ? null : find(id);
@@ -561,6 +573,94 @@ public class ServerConfigPlugin extends Plugin {
         } catch (JSONException e) {
             call.reject("unknown server");
         }
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        attachmentGeneration.incrementAndGet();
+        super.handleOnDestroy();
+    }
+
+    private final AtomicInteger attachmentGeneration = new AtomicInteger();
+    private final AtomicBoolean attachmentSaving = new AtomicBoolean();
+
+    private String attachmentAccount(PluginCall call) throws Exception {
+        JSONObject active = activeServer(getContext());
+        if (active == null || bridge.getAppUrl() == null
+            || !originKey(Uri.parse(active.optString("url"))).equals(originKey(Uri.parse(bridge.getAppUrl()))))
+            throw new IllegalArgumentException("Connect to a server before opening attachments.");
+        AttachmentFiles.url(call.getString("url"), "https".equalsIgnoreCase(Uri.parse(active.optString("url")).getScheme()));
+        return active.getString("id");
+    }
+
+    @PluginMethod
+    public void openAttachment(PluginCall call) {
+        try {
+            attachmentAccount(call);
+            Uri url = Uri.parse(call.getString("url"));
+            int generation = attachmentGeneration.get();
+            getActivity().runOnUiThread(() -> {
+                try {
+                    if (generation != attachmentGeneration.get()) { call.reject("The active account changed. Open the attachment again."); return; }
+                    // Select a browser explicitly: an instance URL must not route back into this app.
+                    String browser = androidx.browser.customtabs.CustomTabsClient.getPackageName(getContext(), null);
+                    if (browser == null) { call.reject("Install a browser to open attachments."); return; }
+                    if (LinkOpener.SYSTEM.equals(LinkOpener.mode(getContext()))) {
+                        getActivity().startActivity(new Intent(Intent.ACTION_VIEW, url).setPackage(browser));
+                    } else {
+                        androidx.browser.customtabs.CustomTabsIntent tab = new androidx.browser.customtabs.CustomTabsIntent.Builder().build();
+                        tab.intent.setPackage(browser);
+                        tab.launchUrl(getActivity(), url);
+                    }
+                    call.resolve();
+                } catch (Exception error) { call.reject("Could not open the attachment in a browser.", error); }
+            });
+        } catch (Exception error) { call.reject(error.getMessage(), error); }
+    }
+
+    @PluginMethod
+    public void saveAttachment(PluginCall call) {
+        boolean admitted = false;
+        try {
+            String account = attachmentAccount(call);
+            if (!attachmentSaving.compareAndSet(false, true)) { call.reject("Finish the current attachment save first."); return; }
+            admitted = true;
+            call.getData().put("attachmentAccount", account);
+            call.getData().put("attachmentGeneration", attachmentGeneration.get());
+            Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE, AttachmentFiles.filename(call.getString("filename")));
+            startActivityForResult(call, intent, "attachmentDestination");
+        } catch (Exception error) { if (admitted) attachmentSaving.set(false); call.reject("Could not open the save dialog.", error); }
+    }
+
+    @ActivityCallback
+    private void attachmentDestination(PluginCall call, ActivityResult result) {
+        if (call == null) { attachmentSaving.set(false); return; }
+        Uri destination = result.getData() == null ? null : result.getData().getData();
+        if (result.getResultCode() != Activity.RESULT_OK || destination == null) {
+            attachmentSaving.set(false);
+            JSObject cancelled = new JSObject(); cancelled.put("cancelled", true); call.resolve(cancelled); return;
+        }
+        try {
+            if (!attachmentAccount(call).equals(call.getString("attachmentAccount"))
+                || attachmentGeneration.get() != call.getInt("attachmentGeneration", -1))
+                throw new IllegalStateException("The active account changed. Save the attachment again.");
+        } catch (Exception error) {
+            try { DocumentsContract.deleteDocument(getContext().getContentResolver(), destination); } catch (Exception ignored) { }
+            attachmentSaving.set(false); call.reject(error.getMessage(), error); return;
+        }
+        // Do not block Capacitor's shared plugin thread during a large transfer.
+        new Thread(() -> {
+            try (OutputStream output = getContext().getContentResolver().openOutputStream(destination, "wt")) {
+                if (output == null) throw new java.io.IOException("Could not open the selected file.");
+                AttachmentFiles.download(call.getString("url"), output,
+                    () -> attachmentGeneration.get() == call.getInt("attachmentGeneration", -1));
+                call.resolve();
+            } catch (Exception error) {
+                try { DocumentsContract.deleteDocument(getContext().getContentResolver(), destination); } catch (Exception ignored) { }
+                call.reject("Could not save the attachment. " + error.getMessage(), error);
+            } finally { attachmentSaving.set(false); }
+        }, "hasht-attachment-save").start();
     }
 
     @PluginMethod
@@ -609,6 +709,7 @@ public class ServerConfigPlugin extends Plugin {
 
     @PluginMethod
     public void remove(PluginCall call) {
+        attachmentGeneration.incrementAndGet();
         String id = call.getString("id");
         if (id == null) {
             call.reject("id is required");
@@ -744,6 +845,7 @@ public class ServerConfigPlugin extends Plugin {
      */
     @PluginMethod
     public void reset(PluginCall call) {
+        attachmentGeneration.incrementAndGet();
         returnToWizard();
         call.resolve();
     }
