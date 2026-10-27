@@ -25,7 +25,8 @@ import java.util.List;
 
 /**
  * The launcher icon's long-press menu: the conversations the page last
- * reported, plus "Switch server" when there is more than one.
+ * reported, "Snooze notifications" when the page offers it, and "Switch
+ * server" when there is more than one.
  *
  * The list belongs to the entry that set it, so a shortcut switches to that
  * entry first. The page collects the conversation with {@code take()}, the
@@ -37,6 +38,7 @@ public class AppShortcutsPlugin extends Plugin {
     static final String EXTRA_ENTRY = "net.hasht.app.shortcut.entry";
     static final String EXTRA_CONVERSATION = "net.hasht.app.shortcut.conversation";
     static final String EXTRA_SERVERS = "net.hasht.app.shortcut.servers";
+    static final String EXTRA_SNOOZE = "net.hasht.app.shortcut.snooze";
     private static final String PREFS = "hasht_shortcuts";
     private static final String KEY_STORED = "stored";
     // Launchers show four or five; keep the same menu on both platforms.
@@ -45,6 +47,7 @@ public class AppShortcutsPlugin extends Plugin {
     /** Static: switching servers recreates the activity and this plugin with it. */
     private static String pendingEntry;
     private static String pendingConversation;
+    private static boolean pendingSnooze;
 
     @PluginMethod
     public void set(PluginCall call) {
@@ -61,7 +64,8 @@ public class AppShortcutsPlugin extends Plugin {
             conversations.put(item);
         }
         try {
-            JSONObject stored = new JSONObject().put("entry", active.optString("id")).put("conversations", conversations);
+            JSONObject stored = new JSONObject().put("entry", active.optString("id")).put("conversations", conversations)
+                .put("snooze", Boolean.TRUE.equals(call.getBoolean("snooze", false)));
             prefs(getContext()).edit().putString(KEY_STORED, stored.toString()).apply();
         } catch (JSONException e) {
             call.reject("Could not save shortcuts.");
@@ -75,12 +79,14 @@ public class AppShortcutsPlugin extends Plugin {
     public void take(PluginCall call) {
         JSONObject active = ServerConfigPlugin.activeServer(getContext());
         JSObject result = new JSObject();
-        if (pendingConversation != null && active != null && active.optString("id").equals(pendingEntry)) {
-            result.put("conversationId", pendingConversation);
+        result.put("conversationId", JSONObject.NULL);
+        result.put("action", JSONObject.NULL);
+        if (pendingEntry != null && active != null && active.optString("id").equals(pendingEntry)) {
+            if (pendingSnooze) result.put("action", "snooze");
+            else result.put("conversationId", pendingConversation);
             pendingEntry = null;
             pendingConversation = null;
-        } else {
-            result.put("conversationId", JSONObject.NULL);
+            pendingSnooze = false;
         }
         call.resolve(result);
     }
@@ -120,9 +126,11 @@ public class AppShortcutsPlugin extends Plugin {
             ServerConfigPlugin.clearActive(context);
             return true;
         }
-        if (entry == null || conversation == null || !hasServer(context, entry)) return false;
+        boolean snooze = intent.getBooleanExtra(EXTRA_SNOOZE, false);
+        if (entry == null || (conversation == null && !snooze) || !hasServer(context, entry)) return false;
         pendingEntry = entry;
         pendingConversation = conversation;
+        pendingSnooze = snooze;
         ServerConfigPlugin.activate(context, entry);
         return true;
     }
@@ -143,9 +151,11 @@ public class AppShortcutsPlugin extends Plugin {
         List<ShortcutInfoCompat> shortcuts = new ArrayList<>();
         JSONObject stored = stored(context);
         String entry = stored == null ? null : stored.optString("entry");
-        if (entry != null && hasServer(context, entry)) {
+        boolean current = entry != null && hasServer(context, entry);
+        boolean snooze = current && stored.optBoolean("snooze");
+        if (current) {
             JSONArray conversations = stored.optJSONArray("conversations");
-            int limit = count > 1 ? LIMIT - 1 : LIMIT;
+            int limit = LIMIT - (snooze ? 1 : 0) - (count > 1 ? 1 : 0);
             for (int i = 0; conversations != null && i < conversations.length() && shortcuts.size() < limit; i++) {
                 JSONObject c = conversations.optJSONObject(i);
                 if (c == null) continue;
@@ -162,6 +172,14 @@ public class AppShortcutsPlugin extends Plugin {
                     .setRank(i)
                     .build());
             }
+        }
+        if (snooze) {
+            shortcuts.add(new ShortcutInfoCompat.Builder(context, "snooze")
+                .setShortLabel(context.getString(R.string.shortcut_snooze))
+                .setIcon(IconCompat.createWithResource(context, R.drawable.ic_shortcut_snooze))
+                .setIntent(intent(context).putExtra(EXTRA_ENTRY, entry).putExtra(EXTRA_SNOOZE, true))
+                .setRank(LIMIT - 1)
+                .build());
         }
         if (count > 1) {
             shortcuts.add(new ShortcutInfoCompat.Builder(context, "servers")
@@ -183,7 +201,7 @@ public class AppShortcutsPlugin extends Plugin {
     }
 
     private static int icon(String kind) {
-        if ("dm".equals(kind)) return R.drawable.ic_shortcut_person;
+        if ("dm".equals(kind)) return R.drawable.ic_shortcut_dm;
         if ("group".equals(kind)) return R.drawable.ic_shortcut_group;
         return R.drawable.ic_shortcut_channel;
     }

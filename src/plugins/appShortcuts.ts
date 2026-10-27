@@ -4,7 +4,7 @@ export interface ShortcutConversation {
   /** Channel id. */
   id: string;
   title: string;
-  /** iOS shows it under the title; Android appends it to the long label. */
+  /** The server a channel is in. Appended to the title (iOS) or long label (Android). */
   subtitle?: string;
   kind: 'dm' | 'group' | 'channel';
 }
@@ -17,12 +17,16 @@ export interface ShortcutConversation {
 export interface AppShortcutsPlugin {
   /**
    * Recent conversations, most recent first, for the active entry. Replaces
-   * the previous list; the shell shows up to four, three when it also offers
-   * "Switch server". Empty clears.
+   * the previous list. The menu holds four items, so "Snooze notifications"
+   * (`snooze`, while signed in) and "Switch server" each take one slot from
+   * the conversations. Empty and `snooze: false` clears.
    */
-  set(options: { conversations: ShortcutConversation[] }): Promise<void>;
-  /** The conversation a shortcut opened on this entry, or null. Taking it clears it. */
-  take(): Promise<{ conversationId: string | null }>;
+  set(options: { conversations: ShortcutConversation[]; snooze?: boolean }): Promise<void>;
+  /**
+   * What a shortcut asked for on this entry, or nulls. `action: 'snooze'`
+   * means open the snooze setting. Taking it clears it.
+   */
+  take(): Promise<{ conversationId: string | null; action: 'snooze' | null }>;
   /** A shortcut was used while the page was loaded; call `take()`. */
   addListener(event: 'shortcutOpened', handler: () => void): Promise<{ remove: () => Promise<void> }>;
 }

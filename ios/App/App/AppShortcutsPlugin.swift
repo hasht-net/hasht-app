@@ -7,7 +7,8 @@ extension Notification.Name {
 }
 
 /// The app icon's long-press menu: the conversations the page last reported,
-/// plus "Switch Server" when there is more than one.
+/// "Snooze Notifications" when the page offers it, and "Switch Server" when
+/// there is more than one.
 ///
 /// The list belongs to the entry that set it, so tapping one switches to that
 /// entry first. The page collects the conversation with `take()`, the same
@@ -23,6 +24,7 @@ public class AppShortcutsPlugin: CAPPlugin, CAPBridgedPlugin {
 
     static let conversationType = "net.hasht.app.conversation"
     static let serversType = "net.hasht.app.servers"
+    static let snoozeType = "net.hasht.app.snooze"
     private static let storeKey = "net.hasht.app.shortcuts"
     /// iOS shows four at most.
     private static let limit = 4
@@ -30,7 +32,8 @@ public class AppShortcutsPlugin: CAPPlugin, CAPBridgedPlugin {
     /// A cold launch's item, from `SceneDelegate` before plugins exist.
     static var launchItem: UIApplicationShortcutItem?
 
-    private var pending: (entry: String, conversation: String)?
+    /// A nil conversation is the snooze action.
+    private var pending: (entry: String, conversation: String?)?
 
     private var serverConfig: ServerConfigPlugin? {
         bridge?.plugin(withName: "ServerConfig") as? ServerConfigPlugin
@@ -39,6 +42,7 @@ public class AppShortcutsPlugin: CAPPlugin, CAPBridgedPlugin {
     private struct Stored: Codable {
         let entry: String
         let conversations: [Conversation]
+        var snooze: Bool? = nil
     }
 
     private struct Conversation: Codable {
@@ -66,17 +70,22 @@ public class AppShortcutsPlugin: CAPPlugin, CAPBridgedPlugin {
             else { return nil }
             return Conversation(id: id, title: title, subtitle: raw["subtitle"] as? String, kind: raw["kind"] as? String ?? "channel")
         }
-        UserDefaults.standard.set(try? JSONEncoder().encode(Stored(entry: entry, conversations: conversations)), forKey: Self.storeKey)
+        let stored = Stored(entry: entry, conversations: conversations, snooze: call.getBool("snooze") ?? false)
+        UserDefaults.standard.set(try? JSONEncoder().encode(stored), forKey: Self.storeKey)
         refresh()
         call.resolve()
     }
 
     @objc func take(_ call: CAPPluginCall) {
         guard let pending, pending.entry == serverConfig?.activeServer?.id else {
-            call.resolve(["conversationId": NSNull()]); return
+            call.resolve(["conversationId": NSNull(), "action": NSNull()]); return
         }
         self.pending = nil
-        call.resolve(["conversationId": pending.conversation])
+        if let conversation = pending.conversation {
+            call.resolve(["conversationId": conversation, "action": NSNull()])
+        } else {
+            call.resolve(["conversationId": NSNull(), "action": "snooze"])
+        }
     }
 
     /// Signed out of or removed: its conversations must not stay on the home screen.
@@ -93,15 +102,26 @@ public class AppShortcutsPlugin: CAPPlugin, CAPBridgedPlugin {
     func refresh() {
         let count = serverConfig?.serverCount ?? 0
         var items: [UIApplicationShortcutItem] = []
-        if let stored, serverConfig?.hasServer(stored.entry) == true {
-            for conversation in stored.conversations.prefix(count > 1 ? Self.limit - 1 : Self.limit) {
+        let current = stored.flatMap { serverConfig?.hasServer($0.entry) == true ? $0 : nil }
+        let snooze = current?.snooze == true
+        if let current {
+            let room = Self.limit - (snooze ? 1 : 0) - (count > 1 ? 1 : 0)
+            for conversation in current.conversations.prefix(room) {
+                // The server goes in the title: the menu doesn't reliably show subtitles.
+                let title = conversation.subtitle.map { "\(conversation.title) · \($0)" } ?? conversation.title
                 items.append(UIApplicationShortcutItem(
                     type: Self.conversationType,
-                    localizedTitle: conversation.title,
-                    localizedSubtitle: conversation.subtitle,
+                    localizedTitle: title,
+                    localizedSubtitle: nil,
                     icon: UIApplicationShortcutIcon(systemImageName: Self.symbol(conversation.kind)),
-                    userInfo: ["entry": stored.entry as NSString, "conversation": conversation.id as NSString]))
+                    userInfo: ["entry": current.entry as NSString, "conversation": conversation.id as NSString]))
             }
+        }
+        if let current, snooze {
+            items.append(UIApplicationShortcutItem(
+                type: Self.snoozeType, localizedTitle: "Snooze Notifications", localizedSubtitle: nil,
+                icon: UIApplicationShortcutIcon(systemImageName: "moon.zzz"),
+                userInfo: ["entry": current.entry as NSString]))
         }
         if count > 1 {
             items.append(UIApplicationShortcutItem(
@@ -113,8 +133,8 @@ public class AppShortcutsPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private static func symbol(_ kind: String) -> String {
         switch kind {
-        case "dm": return "person.crop.circle"
-        case "group": return "person.2"
+        case "dm": return "bubble.left"
+        case "group": return "bubble.left.and.bubble.right"
         default: return "number"
         }
     }
@@ -130,10 +150,11 @@ public class AppShortcutsPlugin: CAPPlugin, CAPBridgedPlugin {
             servers.returnToWizard()
             return
         }
-        guard item.type == Self.conversationType,
+        guard item.type == Self.conversationType || item.type == Self.snoozeType,
               let entry = item.userInfo?["entry"] as? String,
-              let conversation = item.userInfo?["conversation"] as? String,
               servers.hasServer(entry) else { return }
+        let conversation = item.userInfo?["conversation"] as? String
+        if item.type == Self.conversationType, conversation == nil { return }
         pending = (entry, conversation)
         if entry == servers.activeServer?.id {
             // Retained: a page still loading gets it once it listens.

@@ -320,27 +320,31 @@ export interface ShortcutConversation {
 
 /**
  * Recent conversations for the app icon's long-press menu, most recent first.
+ * `snooze` adds "Snooze notifications", which should open the snooze setting.
  * The shell keeps them for the active entry and clears them on sign-out. Only
  * call on a change: Android rate-limits shortcut updates.
  */
-export async function setShortcuts(conversations: ShortcutConversation[]): Promise<void> {
+export async function setShortcuts(conversations: ShortcutConversation[], snooze: boolean): Promise<void> {
   try {
-    await capacitor()?.Plugins?.AppShortcuts?.set({ conversations });
+    await capacitor()?.Plugins?.AppShortcuts?.set({ conversations, snooze });
   } catch {
     // Older shell.
   }
 }
 
+export type Shortcut = { conversationId: string } | { action: 'snooze' };
+
 /**
- * The conversation a shortcut opened, once. Call after auth is restored and on
- * every `onShortcut`; a shortcut for another entry switches to it first.
+ * What a shortcut asked for, once. Call after auth is restored and on every
+ * `onShortcut`; a shortcut for another entry switches to it first.
  */
-export async function takeShortcut(): Promise<string | null> {
+export async function takeShortcut(): Promise<Shortcut | null> {
   try {
     const result = (await capacitor()?.Plugins?.AppShortcuts?.take()) as
-      | { conversationId: string | null }
+      | { conversationId: string | null; action?: 'snooze' | null }
       | undefined;
-    return result?.conversationId ?? null;
+    if (result?.action === 'snooze') return { action: 'snooze' };
+    return result?.conversationId ? { conversationId: result.conversationId } : null;
   } catch {
     return null;
   }
