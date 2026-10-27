@@ -503,7 +503,10 @@ public class ServerConfigPlugin extends Plugin {
     public void signOut(PluginCall call) {
         attachmentGeneration.incrementAndGet();
         String active = activeId();
-        if (active != null) setAccount(active, null, null);
+        if (active != null) {
+            setAccount(active, null, null);
+            AppShortcutsPlugin.forget(getContext(), active);
+        }
         String origin = NativePushPlugin.activeAccountKey(getContext());
         try {
             if (origin != null) NativePushPlugin.unregister(getContext(), origin);
@@ -735,6 +738,7 @@ public class ServerConfigPlugin extends Plugin {
             }
             NativeAuthPlugin.forgetAccount(id);
             saveServers(kept);
+            AppShortcutsPlugin.forget(getContext(), id);
             if (id.equals(activeId())) setActiveId(null);
             if (id.equals(prefs().getString(KEY_DEFAULT, null))) prefs().edit().remove(KEY_DEFAULT).apply();
             call.resolve();

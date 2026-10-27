@@ -61,6 +61,16 @@
 
         </activity>
 
+        <!-- Launcher shortcuts land here and are forwarded into the running
+             task; see ShortcutActivity. Not exported: only our own shortcuts. -->
+        <activity
+            android:name=".ShortcutActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <!-- Started by CallSession while a call is live; see OngoingCallService. -->
         <service
             android:name=".OngoingCallService"

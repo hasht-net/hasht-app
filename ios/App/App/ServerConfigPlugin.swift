@@ -89,6 +89,10 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    private var appShortcuts: AppShortcutsPlugin? {
+        bridge?.plugin(withName: "AppShortcuts") as? AppShortcutsPlugin
+    }
+
     private var accountScript: WKUserScript?
 
     private var activeId: String? {
@@ -187,7 +191,10 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func signOut(_ call: CAPPluginCall) {
         attachmentGeneration.invalidate()
         ShareSession.save(nil)
-        if let id = activeId { setAccount(id: id, username: nil, displayName: nil) }
+        if let id = activeId {
+            setAccount(id: id, username: nil, displayName: nil)
+            appShortcuts?.forget(entry: id)
+        }
         if let push = bridge?.plugin(withName: "NativePush") as? NativePushPlugin,
            let key = activePushKey {
             Task { @MainActor in await push.unregister(origin: key) }
@@ -365,6 +372,8 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
 
     // MARK: - For NativeAuth
 
+    func hasServer(_ id: String) -> Bool { servers.contains { $0.id == id } }
+
     var activeServer: (id: String, url: String)? {
         guard let entry = servers.first(where: { $0.id == activeId }) else { return nil }
         return (entry.id, entry.url)
@@ -462,6 +471,7 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         servers = servers.filter { $0.id != id }
+        appShortcuts?.forget(entry: id)
         let pushKey = entry.legacySession == true ? origin : id
         if let push = bridge?.plugin(withName: "NativePush") as? NativePushPlugin {
             Task { @MainActor in await push.unregister(origin: pushKey) }

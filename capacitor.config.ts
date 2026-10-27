@@ -21,6 +21,9 @@ const config: CapacitorConfig = {
     // Info.plist, which a self-hosted client can never satisfy.
     limitsNavigationsToAppBoundDomains: false,
     contentInset: 'never',
+    // A hold on a link or image belongs to the page's message sheet; WebKit's
+    // own link peek would open over it.
+    allowsLinkPreview: false,
   },
   android: {
     allowMixedContent: false,

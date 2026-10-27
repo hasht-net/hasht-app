@@ -22,6 +22,7 @@ class MainViewController: CAPBridgeViewController {
     private let serverConfig = ServerConfigPlugin()
     private let nativeAuth = NativeAuthPlugin()
     private let nativePush = NativePushPlugin()
+    private let appShortcuts = AppShortcutsPlugin()
     private let shareSessionSync = ShareSessionSync()
     // WKWebView holds its delegates weakly.
     private var linkDelegate: LinkUIDelegate?
@@ -49,6 +50,8 @@ class MainViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(serverConfig)
         bridge?.registerPluginInstance(nativeAuth)
         bridge?.registerPluginInstance(nativePush)
+        // After ServerConfig: a cold launch's quick action may switch servers.
+        bridge?.registerPluginInstance(appShortcuts)
         if let webView = webView, let original = webView.uiDelegate {
             linkDelegate = LinkUIDelegate(wrapping: original, presenter: self)
             linkDelegate?.serverConfig = serverConfig
