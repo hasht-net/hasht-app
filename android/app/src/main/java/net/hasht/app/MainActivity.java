@@ -42,12 +42,14 @@ public class MainActivity extends BridgeActivity {
         // to treat that origin as the app and inject the bridge into it.
         NativePushPlugin.prepareLaunch(this);
         ShareTargetPlugin.prepareLaunch(this, getIntent(), savedInstanceState != null);
+        AppShortcutsPlugin.prepareLaunch(this);
         config = ServerConfigPlugin.runtimeConfig(this);
         registerPlugin(ServerConfigPlugin.class);
         registerPlugin(CallSessionPlugin.class);
         registerPlugin(NativeAuthPlugin.class);
         registerPlugin(NativePushPlugin.class);
         registerPlugin(ShareTargetPlugin.class);
+        registerPlugin(AppShortcutsPlugin.class);
         if (android.os.Build.VERSION.SDK_INT >= 31) {
             // Let the system splash leave on the first frame; the web app owns loading.
             androidx.core.splashscreen.SplashScreen.installSplashScreen(this);

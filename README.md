@@ -150,6 +150,18 @@ behavior.
 iOS declares the audio background mode. Background microphone behavior still
 needs device verification.
 
+### Home-screen quick actions
+
+Long-pressing the app icon lists up to four recent conversations (iOS Quick
+Actions, Android launcher shortcuts), plus "Switch server" when more than one
+is saved. The frontend reports its recent conversations through
+`AppShortcuts.set`; the list belongs to the entry that reported it and is
+cleared when that entry signs out or is removed. A shortcut for another entry
+switches to it first, then the page collects the conversation with
+`AppShortcuts.take()`. Android shortcuts open through `ShortcutActivity`, which
+forwards into the running task: launchers start shortcuts with `CLEAR_TASK`,
+which would rebuild the webview and drop a call.
+
 ### Sharing from other apps on iOS
 
 Choose Hasht in the share sheet, select an existing DM or writable text channel,

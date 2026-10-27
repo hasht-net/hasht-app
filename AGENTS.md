@@ -39,6 +39,10 @@ frontend from a user-configured instance.
   `ShareExtension/` for a native DM/channel picker and direct uploads, with
   `Shared/ShareSession.swift` in App and ShareExtension and
   `App/ShareSessionSync.swift` to mirror the active session into the Keychain.
+- `AppShortcuts` — the app icon's long-press menu. `src/plugins/appShortcuts.ts`;
+  iOS `App/AppShortcutsPlugin.swift` (items handled in `SceneDelegate`);
+  Android `AppShortcutsPlugin`, `ShortcutActivity`. See README, "Home-screen
+  quick actions".
 - `.github/workflows/draft.yaml` — rolling draft release on `main`, same as
   `hasht-chat`. `.github/workflows/release.yaml` — on publish, one job per
   platform sharing a single build number. `fastlane/` is the iOS half of that;

@@ -310,6 +310,46 @@ export function onNativeShare(handler: () => void): void {
   void capacitor()?.Plugins?.ShareTarget?.addListener('shareReceived', handler);
 }
 
+export interface ShortcutConversation {
+  /** Channel id. */
+  id: string;
+  title: string;
+  subtitle?: string;
+  kind: 'dm' | 'group' | 'channel';
+}
+
+/**
+ * Recent conversations for the app icon's long-press menu, most recent first.
+ * The shell keeps them for the active entry and clears them on sign-out. Only
+ * call on a change: Android rate-limits shortcut updates.
+ */
+export async function setShortcuts(conversations: ShortcutConversation[]): Promise<void> {
+  try {
+    await capacitor()?.Plugins?.AppShortcuts?.set({ conversations });
+  } catch {
+    // Older shell.
+  }
+}
+
+/**
+ * The conversation a shortcut opened, once. Call after auth is restored and on
+ * every `onShortcut`; a shortcut for another entry switches to it first.
+ */
+export async function takeShortcut(): Promise<string | null> {
+  try {
+    const result = (await capacitor()?.Plugins?.AppShortcuts?.take()) as
+      | { conversationId: string | null }
+      | undefined;
+    return result?.conversationId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function onShortcut(handler: () => void): void {
+  void capacitor()?.Plugins?.AppShortcuts?.addListener('shortcutOpened', handler);
+}
+
 /** Opens Hasht's system notification settings; rejects on unsupported older shells. */
 export async function openNativeNotificationSettings(): Promise<void> {
   const push = capacitor()?.Plugins?.NativePush;

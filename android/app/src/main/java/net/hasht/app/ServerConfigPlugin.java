@@ -308,6 +308,7 @@ public class ServerConfigPlugin extends Plugin {
 
     private void saveServers(JSONArray servers) {
         prefs().edit().putString(KEY_SERVERS, servers.toString()).apply();
+        AppShortcutsPlugin.refresh(getContext());
     }
 
     private String activeId() {
@@ -414,11 +415,17 @@ public class ServerConfigPlugin extends Plugin {
             .putString(KEY_SERVERS, all.toString())
             .putString(KEY_ACTIVE, entry.getString("id"))
             .apply();
+        AppShortcutsPlugin.refresh(context);
         return entry.getString("id");
     }
 
     static void activate(Context context, String id) {
         prefs(context).edit().putString(KEY_ACTIVE, id).apply();
+    }
+
+    /** Back to the wizard on the next bridge start, without recreating anything. */
+    static void clearActive(Context context) {
+        prefs(context).edit().remove(KEY_ACTIVE).apply();
     }
 
     /** Best-effort, off the main thread: null when the name can't be read. */
@@ -503,7 +510,10 @@ public class ServerConfigPlugin extends Plugin {
     public void signOut(PluginCall call) {
         attachmentGeneration.incrementAndGet();
         String active = activeId();
-        if (active != null) setAccount(active, null, null);
+        if (active != null) {
+            setAccount(active, null, null);
+            AppShortcutsPlugin.forget(getContext(), active);
+        }
         String origin = NativePushPlugin.activeAccountKey(getContext());
         try {
             if (origin != null) NativePushPlugin.unregister(getContext(), origin);
@@ -735,6 +745,7 @@ public class ServerConfigPlugin extends Plugin {
             }
             NativeAuthPlugin.forgetAccount(id);
             saveServers(kept);
+            AppShortcutsPlugin.forget(getContext(), id);
             if (id.equals(activeId())) setActiveId(null);
             if (id.equals(prefs().getString(KEY_DEFAULT, null))) prefs().edit().remove(KEY_DEFAULT).apply();
             call.resolve();

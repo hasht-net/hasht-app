@@ -34,6 +34,7 @@
 		7B5E0000000000000000B004 /* ShareSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5E0000000000000000A006 /* ShareSession.swift */; };
 		7B5E0000000000000000B006 /* ShareSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5E0000000000000000A006 /* ShareSession.swift */; };
 		7B5E0000000000000000B007 /* ShareSessionSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5E0000000000000000A008 /* ShareSessionSync.swift */; };
+		7D5E0000000000000000B001 /* AppShortcutsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D5E0000000000000000A001 /* AppShortcutsPlugin.swift */; };
 		7B5E0000000000000000B005 /* ShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7B5E0000000000000000A007 /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -101,6 +102,7 @@
 		7B5E0000000000000000A005 /* ShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ShareExtension.entitlements; sourceTree = "<group>"; };
 		7B5E0000000000000000A006 /* ShareSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSession.swift; sourceTree = "<group>"; };
 		7B5E0000000000000000A008 /* ShareSessionSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSessionSync.swift; sourceTree = "<group>"; };
+		7D5E0000000000000000A001 /* AppShortcutsPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppShortcutsPlugin.swift; sourceTree = "<group>"; };
 		7B5E0000000000000000A007 /* ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -165,6 +167,7 @@
 				22BDA587C20B4CB19E1C38E6 /* DeepLinks.swift */,
 				7A5E0000000000000000A002 /* NativePushPlugin.swift */,
 				7B5E0000000000000000A008 /* ShareSessionSync.swift */,
+				7D5E0000000000000000A001 /* AppShortcutsPlugin.swift */,
 				7A5E0000000000000000A006 /* App.entitlements */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
@@ -356,6 +359,7 @@
 				7A5E0000000000000000B003 /* NativePushPlugin.swift in Sources */,
 				7B5E0000000000000000B006 /* ShareSession.swift in Sources */,
 				7B5E0000000000000000B007 /* ShareSessionSync.swift in Sources */,
+				7D5E0000000000000000B001 /* AppShortcutsPlugin.swift in Sources */,
 				7A5E0000000000000000B001 /* WebPush.swift in Sources */,
 				7C5E0000000000000000B001 /* PushReadState.swift in Sources */,
 			);
