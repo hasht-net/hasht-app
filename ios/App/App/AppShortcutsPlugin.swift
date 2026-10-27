@@ -61,7 +61,7 @@ public class AppShortcutsPlugin: CAPPlugin, CAPBridgedPlugin {
         guard let entry = serverConfig?.activeServer?.id else {
             call.resolve(); return
         }
-        let conversations = (call.getArray("conversations") as? [[String: Any]] ?? []).compactMap { raw -> Conversation? in
+        let conversations = (call.getArray("conversations", JSObject.self) ?? []).compactMap { raw -> Conversation? in
             guard let id = raw["id"] as? String, !id.isEmpty, let title = raw["title"] as? String, !title.isEmpty
             else { return nil }
             return Conversation(id: id, title: title, subtitle: raw["subtitle"] as? String, kind: raw["kind"] as? String ?? "channel")
