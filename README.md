@@ -152,11 +152,10 @@ needs device verification.
 
 ### Home-screen quick actions
 
-Long-pressing the app icon lists recent conversations (iOS Quick Actions,
-Android launcher shortcuts), with a channel's server after its name, then
-"Snooze notifications" while signed in and "Switch server" when more than one
-server is saved. Four items in all; the last two take slots from the
-conversations. Snooze opens the page's snooze setting. The frontend reports its recent conversations through
+Long-pressing the app icon lists three recent conversations (iOS Quick
+Actions, Android launcher shortcuts), with a channel's server after its name,
+then "Snooze notifications" while signed in, which opens the page's snooze
+setting. The frontend reports its recent conversations through
 `AppShortcuts.set`; the list belongs to the entry that reported it and is
 cleared when that entry signs out or is removed. A shortcut for another entry
 switches to it first, then the page collects the conversation with

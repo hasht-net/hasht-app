@@ -17,9 +17,8 @@ export interface ShortcutConversation {
 export interface AppShortcutsPlugin {
   /**
    * Recent conversations, most recent first, for the active entry. Replaces
-   * the previous list. The menu holds four items, so "Snooze notifications"
-   * (`snooze`, while signed in) and "Switch server" each take one slot from
-   * the conversations. Empty and `snooze: false` clears.
+   * the previous list. The menu holds four items; "Snooze notifications"
+   * (`snooze`, while signed in) takes one. Empty and `snooze: false` clears.
    */
   set(options: { conversations: ShortcutConversation[]; snooze?: boolean }): Promise<void>;
   /**

@@ -7,8 +7,7 @@ extension Notification.Name {
 }
 
 /// The app icon's long-press menu: the conversations the page last reported,
-/// "Snooze Notifications" when the page offers it, and "Switch Server" when
-/// there is more than one.
+/// and "Snooze Notifications" when the page offers it.
 ///
 /// The list belongs to the entry that set it, so tapping one switches to that
 /// entry first. The page collects the conversation with `take()`, the same
@@ -23,7 +22,6 @@ public class AppShortcutsPlugin: CAPPlugin, CAPBridgedPlugin {
     ]
 
     static let conversationType = "net.hasht.app.conversation"
-    static let serversType = "net.hasht.app.servers"
     static let snoozeType = "net.hasht.app.snooze"
     private static let storeKey = "net.hasht.app.shortcuts"
     /// iOS shows four at most.
@@ -98,14 +96,12 @@ public class AppShortcutsPlugin: CAPPlugin, CAPBridgedPlugin {
         UserDefaults.standard.data(forKey: Self.storeKey).flatMap { try? JSONDecoder().decode(Stored.self, from: $0) }
     }
 
-    /// Also called when the server list changes, which can add or drop "Switch Server".
     func refresh() {
-        let count = serverConfig?.serverCount ?? 0
         var items: [UIApplicationShortcutItem] = []
         let current = stored.flatMap { serverConfig?.hasServer($0.entry) == true ? $0 : nil }
         let snooze = current?.snooze == true
         if let current {
-            let room = Self.limit - (snooze ? 1 : 0) - (count > 1 ? 1 : 0)
+            let room = Self.limit - (snooze ? 1 : 0)
             for conversation in current.conversations.prefix(room) {
                 // The server goes in the title: the menu doesn't reliably show subtitles.
                 let title = conversation.subtitle.map { "\(conversation.title) · \($0)" } ?? conversation.title
@@ -122,11 +118,6 @@ public class AppShortcutsPlugin: CAPPlugin, CAPBridgedPlugin {
                 type: Self.snoozeType, localizedTitle: "Snooze Notifications", localizedSubtitle: nil,
                 icon: UIApplicationShortcutIcon(systemImageName: "moon.zzz"),
                 userInfo: ["entry": current.entry as NSString]))
-        }
-        if count > 1 {
-            items.append(UIApplicationShortcutItem(
-                type: Self.serversType, localizedTitle: "Switch Server", localizedSubtitle: nil,
-                icon: UIApplicationShortcutIcon(systemImageName: "rectangle.stack"), userInfo: nil))
         }
         DispatchQueue.main.async { UIApplication.shared.shortcutItems = items }
     }
@@ -146,10 +137,6 @@ public class AppShortcutsPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private func handle(_ item: UIApplicationShortcutItem) {
         guard let servers = serverConfig else { return }
-        if item.type == Self.serversType {
-            servers.returnToWizard()
-            return
-        }
         guard item.type == Self.conversationType || item.type == Self.snoozeType,
               let entry = item.userInfo?["entry"] as? String,
               servers.hasServer(entry) else { return }

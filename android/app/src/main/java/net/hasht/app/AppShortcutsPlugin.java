@@ -25,8 +25,7 @@ import java.util.List;
 
 /**
  * The launcher icon's long-press menu: the conversations the page last
- * reported, "Snooze notifications" when the page offers it, and "Switch
- * server" when there is more than one.
+ * reported, and "Snooze notifications" when the page offers it.
  *
  * The list belongs to the entry that set it, so a shortcut switches to that
  * entry first. The page collects the conversation with {@code take()}, the
@@ -37,7 +36,6 @@ public class AppShortcutsPlugin extends Plugin {
     static final String ACTION = "net.hasht.app.SHORTCUT";
     static final String EXTRA_ENTRY = "net.hasht.app.shortcut.entry";
     static final String EXTRA_CONVERSATION = "net.hasht.app.shortcut.conversation";
-    static final String EXTRA_SERVERS = "net.hasht.app.shortcut.servers";
     static final String EXTRA_SNOOZE = "net.hasht.app.shortcut.snooze";
     private static final String PREFS = "hasht_shortcuts";
     private static final String KEY_STORED = "stored";
@@ -119,13 +117,8 @@ public class AppShortcutsPlugin extends Plugin {
         if (intent == null || !ACTION.equals(intent.getAction())) return false;
         String entry = intent.getStringExtra(EXTRA_ENTRY);
         String conversation = intent.getStringExtra(EXTRA_CONVERSATION);
-        boolean servers = intent.getBooleanExtra(EXTRA_SERVERS, false);
         // Consumed: a recreate re-reads the intent and must not act again.
         intent.setAction(null);
-        if (servers) {
-            ServerConfigPlugin.clearActive(context);
-            return true;
-        }
         boolean snooze = intent.getBooleanExtra(EXTRA_SNOOZE, false);
         if (entry == null || (conversation == null && !snooze) || !hasServer(context, entry)) return false;
         pendingEntry = entry;
@@ -144,10 +137,7 @@ public class AppShortcutsPlugin extends Plugin {
         refresh(context);
     }
 
-    /** Also called when the server list changes, which can add or drop "Switch server". */
     static void refresh(Context context) {
-        JSONArray servers = ServerConfigPlugin.storedServers(context);
-        int count = servers.length();
         List<ShortcutInfoCompat> shortcuts = new ArrayList<>();
         JSONObject stored = stored(context);
         String entry = stored == null ? null : stored.optString("entry");
@@ -155,7 +145,7 @@ public class AppShortcutsPlugin extends Plugin {
         boolean snooze = current && stored.optBoolean("snooze");
         if (current) {
             JSONArray conversations = stored.optJSONArray("conversations");
-            int limit = LIMIT - (snooze ? 1 : 0) - (count > 1 ? 1 : 0);
+            int limit = LIMIT - (snooze ? 1 : 0);
             for (int i = 0; conversations != null && i < conversations.length() && shortcuts.size() < limit; i++) {
                 JSONObject c = conversations.optJSONObject(i);
                 if (c == null) continue;
@@ -179,14 +169,6 @@ public class AppShortcutsPlugin extends Plugin {
                 .setIcon(IconCompat.createWithResource(context, R.drawable.ic_shortcut_snooze))
                 .setIntent(intent(context).putExtra(EXTRA_ENTRY, entry).putExtra(EXTRA_SNOOZE, true))
                 .setRank(LIMIT - 1)
-                .build());
-        }
-        if (count > 1) {
-            shortcuts.add(new ShortcutInfoCompat.Builder(context, "servers")
-                .setShortLabel(context.getString(R.string.shortcut_switch_server))
-                .setIcon(IconCompat.createWithResource(context, R.drawable.ic_shortcut_servers))
-                .setIntent(intent(context).putExtra(EXTRA_SERVERS, true))
-                .setRank(LIMIT)
                 .build());
         }
         try {

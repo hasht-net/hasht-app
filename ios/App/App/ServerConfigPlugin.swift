@@ -86,7 +86,6 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         set {
             guard let removedAccounts else { return }
             UserDefaults.standard.set(try? JSONEncoder().encode(newValue.filter { entry in !removedAccounts.contains { $0["id"] == entry.id } }), forKey: Self.serversKey)
-            appShortcuts?.refresh()
         }
     }
 
@@ -372,8 +371,6 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     // MARK: - For NativeAuth
-
-    var serverCount: Int { servers.count }
 
     func hasServer(_ id: String) -> Bool { servers.contains { $0.id == id } }
 

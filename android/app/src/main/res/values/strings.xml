@@ -9,7 +9,6 @@
     <string name="call_notification_text">Tap to return to the call</string>
     <string name="notification_push_recovery">Open Hasht to catch up</string>
     <string name="notification_channel_messages">Messages</string>
-    <string name="shortcut_switch_server">Switch server</string>
     <string name="shortcut_snooze">Snooze notifications</string>
     <string name="asset_statements" translatable="false">[{\"include\": \"https://chat.hasht.net/.well-known/assetlinks.json\"}]</string>
 </resources>
