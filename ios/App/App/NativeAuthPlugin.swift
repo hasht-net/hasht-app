@@ -107,10 +107,16 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
               let origin = Self.httpsOrigin(raw)
         else { return }
 
-        run(base: origin, confirmHost: true) { [weak self] result in
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
+        let path = DeepLinks.continuationPath(items?.first(where: { $0.name == "path" })?.value)
+        let invite = path.hasPrefix("/invite/") ? String(path.dropFirst(8)) : nil
+        let query = invite.map { [URLQueryItem(name: "invite", value: $0)] } ?? []
+        run(base: origin, confirmHost: true, query: query) { [weak self] result in
             switch result {
             case .success(let auth):
-                self?.adopt(auth, for: origin)
+                var continued = auth
+                continued["continuation_path"] = path
+                self?.adopt(continued, for: origin)
             case .failure(.cancelled):
                 break
             case .failure(.message(let message)):
@@ -243,6 +249,13 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
 
         let handler: (URL?, Error?) -> Void = { callback, error in
             if let error = error as? ASWebAuthenticationSessionError, error.code == .canceledLogin {
+                completion(.failure(.cancelled))
+                return
+            }
+            if let callback, callback.host == "auth",
+               let items = URLComponents(url: callback, resolvingAgainstBaseURL: false)?.queryItems,
+               items.first(where: { $0.name == "request_id" })?.value == handoff.requestId,
+               items.first(where: { $0.name == "cancelled" })?.value == "1" {
                 completion(.failure(.cancelled))
                 return
             }

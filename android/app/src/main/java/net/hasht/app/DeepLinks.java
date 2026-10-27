@@ -19,7 +19,8 @@ final class DeepLinks {
     /** The hosted instance: a link to it may add it without asking. */
     static final String HOSTED_ORIGIN = "https://chat.hasht.net";
 
-    private static final Pattern INVITE = Pattern.compile("^/invite/[A-Za-z0-9]{1,32}$");
+    private static final Pattern INVITE = Pattern.compile("^/invite/[A-Za-z0-9]{1,32}/?$");
+    private static final Pattern SERVER = Pattern.compile("^/servers/[0-9a-fA-F-]{1,64}$");
     private static final Pattern MESSAGE = Pattern.compile("^/channels/[0-9a-fA-F-]{1,64}/[0-9a-fA-F-]{1,64}$");
 
     private DeepLinks() {}
@@ -54,13 +55,19 @@ final class DeepLinks {
         if (link.getRawUserInfo() != null) return null;
         String origin = originKey(link);
         String path = link.getRawPath() == null ? "" : link.getRawPath();
-        boolean routed = INVITE.matcher(path).matches() || MESSAGE.matcher(path).matches();
+        boolean routed = INVITE.matcher(path).matches() || SERVER.matcher(path).matches() || MESSAGE.matcher(path).matches();
         return new Target(origin, origin + (routed ? path : "/"));
     }
 
     /** Whether a link tapped inside the webview should go through the router. */
     static boolean isRoutedPath(String path) {
-        return path != null && (INVITE.matcher(path).matches() || MESSAGE.matcher(path).matches());
+        return path != null && (INVITE.matcher(path).matches() || SERVER.matcher(path).matches() || MESSAGE.matcher(path).matches());
+    }
+
+    static String continuationPath(String path) {
+        if ("/".equals(path)) return path;
+        if (!isRoutedPath(path)) return "/";
+        return path.endsWith("/") ? path.substring(0, path.length() - 1) : path;
     }
 
     static final class Entry {
