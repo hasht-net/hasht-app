@@ -1,8 +1,8 @@
-# hasht-app
+# Hasht Mobile
 
-The iOS and Android app for [Hasht](https://github.com/Hasht-net), built with
-Capacitor. It loads the chat frontend from the instance you choose. The frontend
-is not bundled here.
+The iOS and Android app for [Hasht Chat](https://github.com/hasht-net/hasht-chat),
+built with Capacitor. It loads the chat frontend from the instance you choose. The
+frontend is not bundled here.
 
 ## Setup
 
@@ -33,10 +33,11 @@ backend more than once for different accounts. On upgrade, the first existing
 entry for each backend keeps its previous sign-in. Other browser storage is
 shared by origin.
 
-The remote frontend calls native plugins through `window.Capacitor`.
-[src/integration/hashtNative.ts](src/integration/hashtNative.ts) defines the
-bridge contract for the chat frontend to vendor. It is not imported by the
-picker.
+The remote frontend calls native plugins through `window.Capacitor`. The [desktop
+client](https://github.com/hasht-net/hasht-desktop) provides a separate Electron
+bridge for the same server frontend.
+[src/integration/hashtNative.ts](src/integration/hashtNative.ts) defines the bridge
+contract for the chat frontend to vendor. It is not imported by the picker.
 
 ### Navigation
 
@@ -89,8 +90,10 @@ sign-in session, since WebView passkey support requires fixed domain
 associations that cannot cover arbitrary self-hosted instances.
 
 The backend's native auth flow uses PKCE, and approving in the browser needs a
-passkey or password step-up. The verifier stays in native code. See `docs/NATIVE_SIGN_IN.md` in the
-chat repo for the protocol.
+passkey or password step-up. The verifier stays in native code. See the native
+sign-in guide in
+[hasht-chat](https://github.com/hasht-net/hasht-chat/blob/main/docs/NATIVE_SIGN_IN.md)
+for the protocol.
 
 Sign-in starts through `NativeAuth.signIn({ invite?, register? })` (both only
 shape the browser's form) or a
@@ -101,43 +104,38 @@ browser is open cancels sign-in.
 
 ### Push
 
-`NativePush` registers with `Hasht-net/hasht-push-relay` and returns a Web Push
-subscription for the instance to store through `/api/push/subscribe`. The relay
-forwards encrypted payloads through APNs or FCM. Decryption happens on the
-device in the iOS Notification Service Extension or Android messaging service.
+`NativePush` registers with
+[hasht-push-relay](https://github.com/hasht-net/hasht-push-relay) and returns a Web
+Push subscription for the instance to store through `/api/push/subscribe`. The relay
+forwards encrypted payloads through APNs or FCM. Decryption happens on the device in
+the iOS Notification Service Extension or Android messaging service.
 
 Each saved account has its own registration and keypair. iOS keys are shared with
 the extension through the App Group Keychain (`group.net.hasht.app`); Android
 keys are wrapped with Android Keystore. Tapping a notification switches to its
 instance. The active instance does not show foreground banners.
 
-Each message has its own notification identity. iOS groups messages by account
-and conversation; Android leaves grouping to the system. Live messages alert
-normally. Idle catch-up messages are quiet: passive on iOS and delivered on a
-separate low-importance Android channel. The backend drains catch-up in paced,
-fair batches across conversations, prioritizing DMs and mentions; batch limits
-do not discard the remaining messages.
+Each message has its own notification identity. iOS groups by account and
+conversation; Android leaves grouping to the system. Live messages alert normally.
+Catch-up messages are passive on iOS and use a low-importance Android channel. The
+backend sends paced batches, prioritizing DMs and mentions without discarding the
+rest.
 
-Android stores changed notification identities transactionally in SQLite,
-without a daily message-count overflow. Both platforms retain authoritative
-channel read boundaries and deletion tombstones, scoped to the saved account.
-The frontend supplies read markers after reconnect and on local reads; push
-read controls coalesce a whole conversation read into one boundary. Markers
-use server message timestamps, never the phone's clock.
+Android persists notification state in SQLite. Both platforms keep per-account
+conversation read boundaries and deleted-message records. The frontend updates read
+markers on reconnect and local reads; push controls can clear a whole conversation
+through one boundary. Markers use server message timestamps.
 
-Immediate clearing on iOS remains best effort because background pushes may
-be skipped, especially after force-quit. The notification extension makes
-covered late alerts quiet/passive and repairs older delivered notifications;
-it cannot discard its own incoming alert without Apple's separately approved
-notification-filtering entitlement. Foreground presentation suppresses covered
-alerts, and reconnect repairs delivered notifications. No filtering entitlement
-is added by this change. Push delivery remains a hint; the unread feed is the
-complete record.
+iOS may skip background pushes, especially after force-quit, so remote clearing is
+best effort. The notification extension quiets late alerts for messages already read
+and repairs delivered notifications, but cannot discard its own incoming alert
+without Apple's notification-filtering entitlement, which the app does not have.
+Foreground handling suppresses those alerts, and reconnect repairs delivered
+notifications. Use the unread feed to reconcile missed or stale notifications.
 
-Deploy the quiet-catch-up relay change, native app, and backend together for
-this beta rollout. The transport uses `low` urgency for quiet visible catch-up
-and `very-low` for background read/remove controls. There is no capability
-negotiation or dual backend tracking path.
+Quiet catch-up requires compatible relay, app, and backend releases. It uses `low`
+urgency for visible catch-up and `very-low` for background read/remove controls,
+without capability negotiation.
 
 ### Calls in the background
 
@@ -152,16 +150,14 @@ needs device verification.
 
 ### Home-screen quick actions
 
-Long-pressing the app icon lists three recent conversations (iOS Quick
-Actions, Android launcher shortcuts), with a channel's server after its name,
-then "Snooze notifications" while signed in, which opens the page's snooze
-setting. The frontend reports its recent conversations through
-`AppShortcuts.set`; the list belongs to the entry that reported it and is
-cleared when that entry signs out or is removed. A shortcut for another entry
-switches to it first, then the page collects the conversation with
-`AppShortcuts.take()`. Android shortcuts open through `ShortcutActivity`, which
-forwards into the running task: launchers start shortcuts with `CLEAR_TASK`,
-which would rebuild the webview and drop a call.
+Long-press the app icon for three recent conversations and, while signed in, "Snooze
+notifications". Channel labels include the server name.
+
+The frontend supplies shortcuts through `AppShortcuts.set` and collects the selected
+conversation through `AppShortcuts.take()`. Shortcuts belong to the saved account
+that reported them; signing out or removing it clears them. Selecting another
+account's shortcut switches to it first. Android's `ShortcutActivity` forwards into
+the running task to avoid rebuilding the WebView and dropping a call.
 
 ### Sharing from other apps on iOS
 
@@ -181,6 +177,60 @@ picker clears that copy. The native extension checks the session before
 sending and rejects redirects on authenticated requests. Temporary files are
 removed on completion or cancellation; retries reuse completed uploads and a
 stable message client ID.
+
+### Removing a saved account and managing passkeys
+
+Removing a picker entry records its removal (in Keychain metadata on iOS), removes
+its stored login, and unregisters its push subscription. Cleanup targets only that
+entry's storage key. A temporary, origin-restricted WebView without a native bridge
+reads the removed token for server logout. If the instance is unreachable, the
+removal record prevents local restoration, and the packaged account script clears the
+old key on the next visit to that origin. Remote session revocation requires
+connectivity. Android backup and device-transfer restore are disabled for app data.
+
+Security settings use `ServerConfig.openSecurityManagement({ ticket })` to open
+an authenticated passkey management page in an iOS Safari sheet or Android
+Custom Tab. The shell validates the 64-character hex ticket and constructs
+`/?security_management=1#ticket=<ticket>` from the active instance's HTTPS origin.
+It never accepts an arbitrary destination or the app's session token.
+
+The server issues single-use tickets valid for 60 seconds. The page removes the
+fragment and exchanges it for a ten-minute credential limited to passkey management,
+held only in memory. Browser logins stay untouched; enrollment still requires
+password/passkey verification. The server must support security handoff.
+`openSecuritySettings({ userId })` remains available for older server frontends.
+
+### Opening and saving attachments
+
+The remote frontend uses `ServerConfig.openAttachment({ url })` and
+`saveAttachment({ url, filename? })` for explicit file actions. Opening uses a
+browser sheet (Android also honors the system-browser preference), including
+same-instance URLs, so local/proxy storage never replaces the conversation.
+Saving streams bytes natively: iOS downloads to a temporary file and presents
+its save/share sheet; Android asks for a document destination and streams into
+it. Cancelling either picker is a successful cancelled result. No attachment
+bytes or account credentials cross the JavaScript bridge. Download redirects
+are limited to ten HTTP(S) hops and cannot downgrade HTTPS to HTTP.
+
+These file actions require a shell with the attachment methods above. Older shells
+display an update message.
+
+### Continuing web onboarding in the app
+
+`hasht://signin?server=<https-origin>&path=<destination>` carries optional navigation
+through the existing confirmed browser/PKCE sign-in. Only `/`, invite, server, or
+message paths are accepted; query strings, fragments, and arbitrary URLs are
+rejected. Invite destinations also prefill the browser's invitation preview.
+After successful exchange, `takePendingAuth()` includes `continuation_path` in the
+auth object so the companion chat frontend can restore the destination before
+showing Join. Account credentials never travel in the deep link. Old frontends
+ignore the additional navigation field.
+
+A matching `hasht://auth?request_id=<id>&cancelled=1` callback cancels the current
+browser session without attempting exchange, letting the browser's recovery
+screen return users to the app to retry. Normal authorization still requires a
+code plus the app-held PKCE verifier.
+
 
 ## Native assets
 
@@ -345,57 +395,3 @@ account on a live instance.
 
 [MIT](LICENSE), copyright © 2026 Hasht LLC. See
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for third-party licenses.
-
-### Removing a saved account and managing passkeys
-
-Removing a picker entry writes a durable account tombstone (Keychain metadata on iOS), removes its stored
-login, and unregisters its push subscription. Cleanup targets only that entry's
-storage key, preserving other accounts on the same instance. A bridge-free,
-origin-restricted webview reads the removed token for server logout; cleanup
-has a bounded lifetime. If the instance cannot be reached, the tombstone prevents
-local restoration and the packaged account script clears the old key on the next
-visit to that origin. Remote session revocation requires connectivity. Android
-backup and device-transfer restore are disabled for app data.
-
-Security settings use `ServerConfig.openSecurityManagement({ ticket })` to open
-an authenticated passkey management page in an iOS Safari sheet or Android
-Custom Tab. The shell validates the 64-character hex ticket and constructs
-`/?security_management=1#ticket=<ticket>` from the active instance's HTTPS origin.
-It never accepts an arbitrary destination or the app's session token.
-
-The server issues single-use tickets valid for 60 seconds. The page removes the
-fragment and exchanges it for a ten-minute credential limited to passkey
-management, held only in memory. Browser logins stay untouched; enrollment still
-requires password/passkey verification. Requires the matching chat server change.
-`openSecuritySettings({ userId })` remains available for older server frontends.
-
-### Opening and saving attachments
-
-The remote frontend uses `ServerConfig.openAttachment({ url })` and
-`saveAttachment({ url, filename? })` for explicit file actions. Opening uses a
-browser sheet (Android also honors the system-browser preference), including
-same-instance URLs, so local/proxy storage never replaces the conversation.
-Saving streams bytes natively: iOS downloads to a temporary file and presents
-its save/share sheet; Android asks for a document destination and streams into
-it. Cancelling either picker is a successful cancelled result. No attachment
-bytes or account credentials cross the JavaScript bridge. Download redirects
-are limited to ten HTTP(S) hops and cannot downgrade HTTPS to HTTP.
-
-The companion chat frontend must be deployed after an app release containing
-these methods; older shells display an update message for file actions.
-
-### Continuing web onboarding in the app
-
-`hasht://signin?server=<https-origin>&path=<destination>` carries optional navigation
-through the existing confirmed browser/PKCE sign-in. Only `/`, invite, server, or
-message paths are accepted; query strings, fragments, and arbitrary URLs are
-rejected. Invite destinations also prefill the browser's invitation preview.
-After successful exchange, `takePendingAuth()` includes `continuation_path` in the
-auth object so the companion chat frontend can restore the destination before
-showing Join. Account credentials never travel in the deep link. Old frontends
-ignore the additional navigation field.
-
-A matching `hasht://auth?request_id=<id>&cancelled=1` callback cancels the current
-browser session without attempting exchange, letting the browser's recovery
-screen return users to the app to retry. Normal authorization still requires a
-code plus the app-held PKCE verifier.

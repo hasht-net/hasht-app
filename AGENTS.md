@@ -1,16 +1,15 @@
 # AGENTS.md
 
-Capacitor mobile shell for Hasht (iOS + Android). Thin client — remote-loads the
-frontend from a user-configured instance.
+Capacitor mobile shell for Hasht (iOS + Android). It loads the frontend from a
+user-configured instance.
 
 ## Layout
 
 - `index.html`, `src/bootstrap.ts`, `src/bootstrap.css` — the instance picker.
   Its colors, radii and font (Manrope, bundled) are copied from hasht-chat's
   `frontend/src/style.css` and sign-in screen; keep them in step.
-  The main app UI; the iOS Share Extension also ships a native destination
-  picker. Everything after connecting in the main app is the remote
-  Vue app.
+  The main chat UI comes from that instance. The iOS Share Extension ships
+  a native destination picker.
 - `src/plugins/serverConfig.ts`, `src/plugins/nativeAuth.ts` — TS interfaces
   for the custom `ServerConfig` and `NativeAuth` plugins.
 - `src/integration/hashtNative.ts` — the native-bridge contract for the *chat
@@ -51,7 +50,7 @@ frontend from a user-configured instance.
 ## Conventions
 
 - The chat frontend is never bundled here. If you find yourself adding a build
-  step that pulls `chat/frontend`, the architecture changed — update the README.
+  step that pulls `hasht-chat/frontend`, the architecture changed — update the README.
 - `limitsNavigationsToAppBoundDomains` must stay `false`. App-Bound Domains
   needs a fixed ≤10-domain list in Info.plist, which a self-hosted client cannot
   satisfy.
@@ -88,10 +87,10 @@ cd ios/App && xcodebuild -scheme App -destination 'generic/platform=iOS' \
 
 ## Related
 
-- `Hasht-net/chat` — backend + Vue frontend. `backend/src/push/` (Web Push,
+- `hasht-net/hasht-chat` — backend + Vue frontend. `backend/src/push/` (Web Push,
   aes128gcm), `backend/src/auth/native.rs` (the `hasht://` handoff).
-- `Hasht-net/hasht-desktop` — Electron shell; same thin-client idea, and the
+- `hasht-net/hasht-desktop` — Electron shell; same thin-client idea, and the
   precedent for the native-bridge pattern (`src/main/screenShare.ts`,
   `src/main/nativeAuth.ts`).
-- `Hasht-net/hasht-push-relay` — the push relay `NativePush` registers with
-  (Rust; Web Push in, APNs/FCM out). Not yet on GitHub or deployed.
+- `hasht-net/hasht-push-relay` — the push relay `NativePush` registers with
+  (Rust; Web Push in, APNs/FCM out).

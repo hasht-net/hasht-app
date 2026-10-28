@@ -1,8 +1,9 @@
 # Native server-load recovery
 
-Run on both iOS and Android, including a cold launch with a saved active server.
-Use a test instance whose API health check succeeds and whose main document can
-be configured for each failure. No real credentials are needed.
+Use this checklist on iOS and Android, including a cold launch with a saved active
+server. It describes expected behavior, not completed device testing. Use a test
+instance whose API health check succeeds and whose main document can be configured
+for each failure. No real credentials are needed.
 
 | Main document | Expected result |
 | --- | --- |
