@@ -14,6 +14,14 @@ public class DeepLinksTest {
         return new DeepLinks.Entry(id, url);
     }
 
+    @Test public void continuationOnlyCarriesNavigation() {
+        assertEquals("/invite/ABC", DeepLinks.continuationPath("/invite/ABC/"));
+        assertEquals("/servers/123-abc", DeepLinks.continuationPath("/servers/123-abc"));
+        for (String path : new String[] {"https://evil.test", "//evil.test", "/invite/ABC?token=x", "/invite/ABC#ticket=x", "/?native_auth=x"}) {
+            assertEquals("/", DeepLinks.continuationPath(path));
+        }
+    }
+
     @Test public void httpsLinksKeepAllowlistedPathsOnly() {
         assertEquals(HOSTED + "/invite/abc123", DeepLinks.target(HOSTED + "/invite/abc123").url);
         assertEquals(HOSTED + MESSAGE, DeepLinks.target(HOSTED + MESSAGE + "?x=1#y").url);

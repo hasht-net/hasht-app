@@ -196,9 +196,13 @@ public class NativeAuthPlugin extends Plugin {
     private void onSignInLink(Uri link) {
         final Uri origin = httpsOrigin(link.getQueryParameter("server"));
         if (origin == null) return;
-        run(origin.toString(), true, handoff -> {}, new Outcome() {
+        final String path = DeepLinks.continuationPath(link.getQueryParameter("path"));
+        run(origin.toString(), true, handoff -> {
+            if (path.startsWith("/invite/")) handoff.invite = path.substring(8);
+        }, new Outcome() {
             @Override
             public void signedIn(JSObject auth) {
+                auth.put("continuation_path", path);
                 adopt(auth, origin);
             }
 
@@ -339,6 +343,12 @@ public class NativeAuthPlugin extends Plugin {
     private boolean onCallback(Uri callback) {
         final Handoff handoff = current;
         final String code = callback.getQueryParameter("code");
+        if (handoff != null && handoff.requestId != null
+            && handoff.requestId.equals(callback.getQueryParameter("request_id"))
+            && "1".equals(callback.getQueryParameter("cancelled"))) {
+            finish(handoff, h -> h.outcome.cancelled());
+            return true;
+        }
         if (handoff == null || handoff.requestId == null || code == null
             || !handoff.requestId.equals(callback.getQueryParameter("request_id"))) {
             return false;

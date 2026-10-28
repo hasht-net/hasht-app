@@ -383,3 +383,19 @@ are limited to ten HTTP(S) hops and cannot downgrade HTTPS to HTTP.
 
 The companion chat frontend must be deployed after an app release containing
 these methods; older shells display an update message for file actions.
+
+### Continuing web onboarding in the app
+
+`hasht://signin?server=<https-origin>&path=<destination>` carries optional navigation
+through the existing confirmed browser/PKCE sign-in. Only `/`, invite, server, or
+message paths are accepted; query strings, fragments, and arbitrary URLs are
+rejected. Invite destinations also prefill the browser's invitation preview.
+After successful exchange, `takePendingAuth()` includes `continuation_path` in the
+auth object so the companion chat frontend can restore the destination before
+showing Join. Account credentials never travel in the deep link. Old frontends
+ignore the additional navigation field.
+
+A matching `hasht://auth?request_id=<id>&cancelled=1` callback cancels the current
+browser session without attempting exchange, letting the browser's recovery
+screen return users to the app to retry. Normal authorization still requires a
+code plus the app-held PKCE verifier.

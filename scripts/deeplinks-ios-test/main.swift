@@ -40,6 +40,12 @@ for raw in [
     check(target(raw) == nil, "rejects \(raw)")
 }
 
+check(DeepLinks.continuationPath("/invite/ABC/") == "/invite/ABC", "continuation normalizes invite slash")
+check(DeepLinks.continuationPath("/servers/123-abc") == "/servers/123-abc", "server destination kept")
+for path in ["https://evil.test", "//evil.test", "/invite/ABC?token=x", "/invite/ABC#ticket=x", "/?native_auth=x"] {
+    check(DeepLinks.continuationPath(path) == "/", "unsafe continuation discarded")
+}
+
 // Rules
 let invite = target(hosted + "/invite/a")!
 let selfHosted = target("https://chat.example.com/invite/a")!

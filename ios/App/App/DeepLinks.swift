@@ -39,8 +39,14 @@ enum DeepLinks {
 
     /// Whether a link tapped inside the webview should go through the router.
     static func isRoutedPath(_ path: String) -> Bool {
-        matches(path, #"^/invite/[A-Za-z0-9]{1,32}$"#)
+        matches(path, #"^/invite/[A-Za-z0-9]{1,32}/?$"#)
+            || matches(path, #"^/servers/[0-9a-fA-F-]{1,64}$"#)
             || matches(path, #"^/channels/[0-9a-fA-F-]{1,64}/[0-9a-fA-F-]{1,64}$"#)
+    }
+
+    static func continuationPath(_ value: String?) -> String {
+        guard let value, value == "/" || isRoutedPath(value) else { return "/" }
+        return value.hasSuffix("/") && value != "/" ? String(value.dropLast()) : value
     }
 
     struct Entry {
