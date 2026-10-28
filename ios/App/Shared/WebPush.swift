@@ -76,7 +76,7 @@ enum WebPushCrypto {
 }
 
 /// A decrypted push. Mirrors the backend's payload:
-/// `{title, body, url, tag, icon, kind, ids}`.
+/// `{title, body, url, tag, icon, image, kind, ids}`.
 struct PushMessage {
     let origin: String
     let title: String?
@@ -84,6 +84,8 @@ struct PushMessage {
     /// A path on `origin`.
     let path: String?
     let tag: String?
+    /// A signed attachment path on `origin`, shown beside the text.
+    var image: String? = nil
     /// Message, quiet catch-up, edit, exact removal, or channel read boundary.
     let kind: String
     let ids: [String]
@@ -94,6 +96,13 @@ struct PushMessage {
 
     var absoluteURL: String? {
         path.map { $0.hasPrefix("/") ? origin + $0 : $0 }
+    }
+
+    /// Only a path on the sending instance; the extension never fetches
+    /// another host on a payload's say-so.
+    var imageURL: URL? {
+        guard let image = image, image.hasPrefix("/"), !image.hasPrefix("//") else { return nil }
+        return URL(string: origin + image)
     }
 
     /// Tries each registration's key against the `enc` field the relay added.
@@ -110,6 +119,7 @@ struct PushMessage {
                 body: json["body"] as? String,
                 path: json["url"] as? String,
                 tag: json["tag"] as? String,
+                image: json["image"] as? String,
                 kind: json["kind"] as? String ?? "message",
                 ids: (json["ids"] as? [Any])?.map { "\($0)" } ?? [],
                 created: (json["native_order"] as? [String: Any])?["created"] as? Double, accountKey: reg.accountKey,

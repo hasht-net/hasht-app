@@ -59,6 +59,15 @@ let opened = PushMessage.open(enc: enc, registrations: regs)
 check(opened?.origin == "https://b.test", "picked the right instance")
 check(opened?.absoluteURL == "https://b.test/channels/1/2", "absolute url")
 check(opened?.kind == "remove" && opened?.ids == ["2"] && opened?.tag == "channel:1", "fields")
+check(opened?.imageURL == nil, "no image unless sent")
+let withImage = #"{"title":"t","url":"/x","image":"/api/attachments/1?exp=2&sig=3&variant=thumb"}"#
+let pictured = PushMessage.open(enc: encrypt(Data(withImage.utf8), to: a.publicKey, auth: auth).base64URL, registrations: regs)
+check(pictured?.imageURL?.absoluteString == "https://a.test/api/attachments/1?exp=2&sig=3&variant=thumb", "image on the instance")
+for foreign in ["https://evil.test/x.png", "//evil.test/x.png"] {
+    let json = #"{"title":"t","image":"\#(foreign)"}"#
+    let opened = PushMessage.open(enc: encrypt(Data(json.utf8), to: a.publicKey, auth: auth).base64URL, registrations: regs)
+    check(opened != nil && opened?.imageURL == nil, "image from another host refused: \(foreign)")
+}
 let legacy = encrypt(Data(#"{"title":"t","url":"/x"}"#.utf8), to: a.publicKey, auth: auth).base64URL
 check(PushMessage.open(enc: legacy, registrations: regs)?.kind == "message", "kind defaults to message")
 
