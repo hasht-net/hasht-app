@@ -27,6 +27,7 @@ public class HashtMessagingService extends FirebaseMessagingService {
         if (enc == null) return;
         PushNotifications.Message message = PushNotifications.open(this, enc);
         if (message == null) return;
+        message.picture = PushNotifications.picture(message);
         PushNotifications.receive(this, message);
     }
 }

@@ -5,12 +5,18 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.os.Build;
 import android.os.Bundle;
 import android.service.notification.StatusBarNotification;
 import android.text.TextUtils;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -39,15 +45,21 @@ final class PushNotifications {
     private static PushOrder.State orderState;
     private static PushOrderStore orderStore;
 
-    /** A decrypted payload: `{title, body, url, tag, icon, kind, ids}`. */
+    /** A decrypted payload: `{title, body, url, tag, icon, image, kind, ids}`. */
     static final class Message {
         final String origin;
         final String registrationId;
+        /** The instance itself; `origin` may be an account key. */
+        final String backend;
         final String title;
         final String body;
         /** A path on `origin`. */
         final String url;
         final String tag;
+        /** A signed attachment path on `backend`, shown beside the text. */
+        final String image;
+        /** `image`, fetched before `receive` so the download runs outside its lock. */
+        Bitmap picture;
         /** Message, quiet catch-up, edit, exact removal, or channel read boundary. */
         final String kind;
         final List<String> ids;
@@ -56,15 +68,17 @@ final class PushNotifications {
         final long issued;
         final long readThrough;
 
-        Message(String origin, JSONObject json) { this(origin, null, json); }
+        Message(String origin, JSONObject json) { this(origin, null, origin, json); }
 
-        Message(String origin, String registrationId, JSONObject json) {
+        Message(String origin, String registrationId, String backend, JSONObject json) {
             this.origin = origin;
             this.registrationId = registrationId;
+            this.backend = backend;
             this.title = json.optString("title", "Hasht");
             this.body = json.optString("body", "");
             this.url = json.optString("url", "/");
             this.tag = json.optString("tag", "");
+            this.image = json.optString("image", "");
             this.kind = json.optString("kind", "message");
             List<String> ids = new ArrayList<>();
             JSONArray raw = json.optJSONArray("ids");
@@ -80,6 +94,14 @@ final class PushNotifications {
         String notificationTag() {
             return origin + " " + tag;
         }
+
+        String imageUrl() { return PushNotifications.imageUrl(backend, image); }
+    }
+
+    /** Only a path on the sending instance, never another host on a payload's say-so. */
+    static String imageUrl(String backend, String image) {
+        if (image == null || !image.startsWith("/") || image.startsWith("//")) return null;
+        return backend + image;
     }
 
     /** Tries each instance's key; the one whose GCM tag verifies sent it. */
@@ -93,12 +115,53 @@ final class PushNotifications {
         for (PushStore.Registration reg : PushStore.load(context)) {
             try {
                 byte[] plain = WebPushCrypto.decrypt(body, reg.key(), reg.publicKey, reg.auth);
-                return new Message(reg.scope(), reg.id, new JSONObject(new String(plain, StandardCharsets.UTF_8)));
+                return new Message(reg.scope(), reg.id, reg.origin, new JSONObject(new String(plain, StandardCharsets.UTF_8)));
             } catch (Exception wrongKey) {
                 // Next instance.
             }
         }
         return null;
+    }
+
+    private static final int PICTURE_MAX_BYTES = 10 * 1024 * 1024;
+    private static final int PICTURE_MAX_SIDE = 1024;
+
+    /**
+     * Downloads the message's image, or null. The URL is signed, so no
+     * session is needed; short timeouts keep FCM's processing window.
+     */
+    static Bitmap picture(Message message) {
+        String raw = message.imageUrl();
+        if (raw == null) return null;
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) new URL(raw).openConnection();
+            connection.setConnectTimeout(5000);
+            connection.setReadTimeout(5000);
+            if (connection.getResponseCode() != 200) return null;
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            try (InputStream input = connection.getInputStream()) {
+                byte[] buffer = new byte[64 * 1024];
+                int count;
+                while ((count = input.read(buffer)) != -1) {
+                    bytes.write(buffer, 0, count);
+                    if (bytes.size() > PICTURE_MAX_BYTES) return null;
+                }
+            }
+            byte[] data = bytes.toByteArray();
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inJustDecodeBounds = true;
+            BitmapFactory.decodeByteArray(data, 0, data.length, options);
+            int sample = 1;
+            while (Math.max(options.outWidth, options.outHeight) / (sample * 2) >= PICTURE_MAX_SIDE) sample *= 2;
+            options = new BitmapFactory.Options();
+            options.inSampleSize = sample;
+            return BitmapFactory.decodeByteArray(data, 0, data.length, options);
+        } catch (Exception unavailable) {
+            return null;
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
     }
 
     /** State commit and notification effects share one lock, including UI clears. */
@@ -163,6 +226,12 @@ final class PushNotifications {
             .setAutoCancel(true)
             .setContentIntent(pending)
             .addExtras(extras);
+        if (message.picture != null) {
+            builder.setLargeIcon(message.picture)
+                .setStyle(new NotificationCompat.BigPictureStyle()
+                    .bigPicture(message.picture)
+                    .bigLargeIcon((Bitmap) null));
+        }
         // An edit replaces the text without a second alert.
         if ("update".equals(message.kind)) builder.setOnlyAlertOnce(true);
         if ("catch_up".equals(message.kind)) builder.setSilent(true);
