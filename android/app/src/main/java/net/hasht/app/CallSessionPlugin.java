@@ -2,6 +2,8 @@ package net.hasht.app;
 
 import android.Manifest;
 import android.content.pm.PackageManager;
+import android.media.AudioManager;
+import android.os.Build;
 
 import androidx.core.content.ContextCompat;
 
@@ -18,6 +20,15 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 @CapacitorPlugin(name = "CallSession")
 public class CallSessionPlugin extends Plugin {
 
+    private CallAudioRoute route;
+
+    @Override
+    public void load() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            route = new CallAudioRoute(getContext().getSystemService(AudioManager.class));
+        }
+    }
+
     @PluginMethod
     public void start(PluginCall call) {
         // Android 14 refuses a microphone foreground service without the
@@ -30,6 +41,7 @@ public class CallSessionPlugin extends Plugin {
         try {
             ContextCompat.startForegroundService(
                 getContext(), OngoingCallService.intent(getContext(), call.getString("title")));
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) route.start();
             call.resolve();
         } catch (RuntimeException e) {
             // Starting from the background is disallowed on 12+; the page
@@ -51,6 +63,7 @@ public class CallSessionPlugin extends Plugin {
     }
 
     private void stopService() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) route.stop();
         getContext().stopService(OngoingCallService.intent(getContext(), null));
     }
 }
