@@ -16,7 +16,10 @@ export interface NativeAuthPlugin {
    *
    * `invite` (alphanumeric, else dropped) prefills the browser's invite field;
    * `register` opens it on Register; `username` and `displayName` fill in its
-   * Register form. None of them affects where the code goes.
+   * Register form. With `register`, `email`, `birthday` (YYYY-MM-DD) and
+   * `birthdayVisibility` fill in the rest; they travel in the URL fragment,
+   * never the query, and invalid values are dropped. None of them affects
+   * where the code goes.
    *
    * `auth` is the server's `AuthResponse`, passed through untouched.
    */
@@ -25,6 +28,9 @@ export interface NativeAuthPlugin {
     register?: boolean;
     username?: string;
     displayName?: string;
+    email?: string;
+    birthday?: string;
+    birthdayVisibility?: 'full' | 'month_day' | 'hidden';
   }): Promise<{ auth: unknown }>;
   /**
    * Auth that a `hasht://signin?server=<origin>` link finished for the active
