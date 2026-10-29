@@ -29,9 +29,10 @@ user-configured instance.
   (compiled into both targets); Android `NativePushPlugin`,
   `HashtMessagingService`, `PushStore`, `PushRelay`, `PushNotifications`,
   `WebPushCrypto`.
-- `android/.../CallSessionPlugin.java`, `OngoingCallService.java` — Android-only;
-  keeps the mic alive during a backgrounded call. See README, "Calls in the
-  background".
+- `android/.../CallSessionPlugin.java`, `OngoingCallService.java`,
+  `CallAudioRoute.java` — Android-only; keeps the mic alive during a
+  backgrounded call and moves call audio to headsets that connect mid-call. See
+  README, "Calls in the background".
 - `ShareTarget` — the system share sheet target. `src/plugins/shareTarget.ts`;
   Android `ShareTargetPlugin` (copies shared streams to cache, served to the
   page under `/_hasht_share_/<token>/` by `HashtWebViewClient`). iOS uses

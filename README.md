@@ -145,6 +145,14 @@ background and displays an ongoing notification. It must only run during a
 call. The Play Console foreground-service declaration needs a video of this
 behavior.
 
+The WebView picks the call's audio device when the mic opens, preferring a
+wired, USB or Bluetooth headset over the speaker, but it can only follow
+Bluetooth changes with the runtime `BLUETOOTH_CONNECT` permission. Instead of
+asking for it, `CallSession` watches device changes during a call on Android 12
+and later and moves the call to a headset that connects, or back to the best
+remaining device when one goes away. Android 11 and below get the install-time
+`BLUETOOTH` permission, which is all the WebView needs there.
+
 iOS declares the audio background mode. Background microphone behavior still
 needs device verification.
 
