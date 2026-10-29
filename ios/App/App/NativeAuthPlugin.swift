@@ -77,8 +77,14 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
                 query.append(URLQueryItem(name: param, value: value))
             }
         }
+        let fragment = call.getBool("register") == true
+            ? SignupPrefill.fragment(
+                email: SignupPrefill.email(call.getString("email")),
+                birthday: SignupPrefill.birthday(call.getString("birthday")),
+                visibility: SignupPrefill.visibility(call.getString("birthdayVisibility")))
+            : nil
         // The user just tapped Sign in on this server's own page: nothing to confirm.
-        run(base: base, confirmHost: false, query: query) { result in
+        run(base: base, confirmHost: false, query: query, fragment: fragment) { result in
             switch result {
             case .success(let auth):
                 call.resolve(["auth": auth])
@@ -156,7 +162,7 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
     // MARK: - The handoff
 
     private func run(
-        base: URL, confirmHost: Bool, query: [URLQueryItem] = [],
+        base: URL, confirmHost: Bool, query: [URLQueryItem] = [], fragment: String? = nil,
         completion: @escaping (Result<[String: Any], Failure>) -> Void
     ) {
         DispatchQueue.main.async {
@@ -178,7 +184,7 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
                     done(.failure(failure))
                 case .success(let handoff):
                     let proceed = {
-                        self.openBrowser(base: base, handoff: handoff, query: query) { code in
+                        self.openBrowser(base: base, handoff: handoff, query: query, fragment: fragment) { code in
                             switch code {
                             case .failure(let failure):
                                 done(.failure(failure))
@@ -236,12 +242,14 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
     }
 
     private func openBrowser(
-        base: URL, handoff: Handoff, query: [URLQueryItem],
+        base: URL, handoff: Handoff, query: [URLQueryItem], fragment: String?,
         completion: @escaping (Result<String, Failure>) -> Void
     ) {
         var target = URLComponents(url: base, resolvingAgainstBaseURL: false)
         target?.path = "/"
         target?.queryItems = [URLQueryItem(name: "native_auth", value: handoff.requestId)] + query
+        // Already percent-encoded; never in the query, which servers log.
+        target?.percentEncodedFragment = fragment
         guard let url = target?.url else {
             completion(.failure(.message("Couldn't open sign-in.")))
             return

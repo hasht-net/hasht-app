@@ -84,6 +84,8 @@ public class NativeAuthPlugin extends Plugin {
         /** What the page's Register form already had, so the browser's is filled in. */
         String username;
         String displayName;
+        /** Email and birth date, already form-encoded for the URL fragment. */
+        String signupFragment;
         String requestId;
         String verifier;
         boolean inBrowser;
@@ -140,12 +142,19 @@ public class NativeAuthPlugin extends Plugin {
         final boolean register = Boolean.TRUE.equals(call.getBoolean("register", false));
         final String username = prefillName(call.getString("username"));
         final String displayName = prefillName(call.getString("displayName"));
+        final String fragment = register
+            ? signupFragment(
+                prefillEmail(call.getString("email")),
+                prefillBirthday(call.getString("birthday")),
+                prefillVisibility(call.getString("birthdayVisibility")))
+            : null;
         // The user just tapped Sign in on this server's own page: nothing to confirm.
         run(active.optString("url"), false, handoff -> {
             handoff.invite = validInvite;
             handoff.register = register;
             handoff.username = username;
             handoff.displayName = displayName;
+            handoff.signupFragment = fragment;
         }, new Outcome() {
             @Override
             public void signedIn(JSObject auth) {
@@ -305,6 +314,8 @@ public class NativeAuthPlugin extends Plugin {
         if (handoff.register) builder.appendQueryParameter("register", "1");
         if (handoff.username != null) builder.appendQueryParameter("username", handoff.username);
         if (handoff.displayName != null) builder.appendQueryParameter("display_name", handoff.displayName);
+        // Never in the query, which servers log.
+        if (handoff.signupFragment != null) builder.encodedFragment(handoff.signupFragment);
         Uri url = builder.build();
         String provider = CustomTabsClient.getPackageName(getContext(), null);
         handoff.inBrowser = true;
@@ -380,6 +391,54 @@ public class NativeAuthPlugin extends Plugin {
             if (Character.isISOControl(trimmed.charAt(i))) return null;
         }
         return trimmed;
+    }
+
+    static String prefillEmail(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        if (trimmed.length() < 3 || trimmed.length() > 254 || trimmed.indexOf('@') < 0) return null;
+        for (int i = 0; i < trimmed.length(); i++) {
+            char c = trimmed.charAt(i);
+            if (Character.isISOControl(c) || Character.isWhitespace(c)) return null;
+        }
+        return trimmed;
+    }
+
+    /** A real calendar date written YYYY-MM-DD. java.time needs API 26. */
+    static String prefillBirthday(String value) {
+        if (value == null || !value.matches("\\d{4}-\\d{2}-\\d{2}")) return null;
+        int year = Integer.parseInt(value.substring(0, 4));
+        int month = Integer.parseInt(value.substring(5, 7));
+        int day = Integer.parseInt(value.substring(8, 10));
+        java.util.GregorianCalendar calendar = new java.util.GregorianCalendar();
+        if (month < 1 || month > 12 || day < 1) return null;
+        calendar.clear();
+        calendar.set(year, month - 1, 1);
+        return day <= calendar.getActualMaximum(java.util.Calendar.DAY_OF_MONTH) ? value : null;
+    }
+
+    static String prefillVisibility(String value) {
+        return "full".equals(value) || "month_day".equals(value) || "hidden".equals(value) ? value : null;
+    }
+
+    /**
+     * Email and birth date for the browser's Register form, form-encoded like
+     * URLSearchParams for the URL fragment: it never reaches a server or proxy
+     * log, and the page clears it once read. Null when there's nothing.
+     */
+    static String signupFragment(String email, String birthday, String visibility) {
+        StringBuilder out = new StringBuilder();
+        String[][] pairs = {{"email", email}, {"birthday", birthday}, {"birthday_visibility", visibility}};
+        for (String[] pair : pairs) {
+            if (pair[1] == null) continue;
+            if (out.length() > 0) out.append('&');
+            try {
+                out.append(pair[0]).append('=').append(java.net.URLEncoder.encode(pair[1], "UTF-8"));
+            } catch (java.io.UnsupportedEncodingException e) {
+                return null; // UTF-8 is always supported.
+            }
+        }
+        return out.length() == 0 ? null : out.toString();
     }
 
     private interface Report {

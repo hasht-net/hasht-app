@@ -81,6 +81,7 @@ npm run build
 scripts/test-webpush-ios.sh
 scripts/test-share-ios.sh
 scripts/test-deeplinks-ios.sh
+scripts/test-signup-prefill-ios.sh
 cd android && ./gradlew :app:compileDebugJavaWithJavac :app:testDebugUnitTest
 cd ios/App && xcodebuild -scheme App -destination 'generic/platform=iOS' \
   -configuration Debug CODE_SIGNING_ALLOWED=NO build
