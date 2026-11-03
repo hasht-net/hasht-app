@@ -1,0 +1,16 @@
+name: "Xcode 27 runner probe (temporary)"
+on:
+  push:
+    branches: [ios-release-xcode-27]
+jobs:
+  probe:
+    runs-on: xcode-27
+    timeout-minutes: 10
+    steps:
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - run: |
+          sw_vers
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
