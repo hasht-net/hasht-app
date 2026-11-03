@@ -301,7 +301,9 @@ jobs:
 
   ios:
     name: "iOS"
-    runs-on: macos-26
+    # Builds need the iOS 27.1+ SDK to fill the iPhone Duo's display; the
+    # macos-26 image tops out at Xcode 26.
+    runs-on: xcode-27
     needs: meta
     if: ${{ needs.meta.outputs.ios == 'true' }}
     timeout-minutes: 45
