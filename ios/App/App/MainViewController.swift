@@ -29,7 +29,7 @@ class MainViewController: CAPBridgeViewController {
     private var recoveryDelegate: RecoveryNavigationDelegate?
     private var recoveryView: UIView?
     private var insetScript: WKUserScript?
-    private var published: UIEdgeInsets = .init(top: -1, left: -1, bottom: -1, right: -1)
+    private var published = ""
 
     override open func capacitorDidLoad() {
         // Install before registering ServerConfig: its load() starts the saved server.
@@ -177,16 +177,30 @@ class MainViewController: CAPBridgeViewController {
     private func publishSafeAreaInsets() {
         guard let webView = webView else { return }
         let insets = view.safeAreaInsets
-        guard insets != published else { return }
-        published = insets
+        // The safe area clears the status bar and sensor housing but not the
+        // display's rounded corners, which a column pinned to an edge (the
+        // server rail) runs into. These add the corner allowance per edge.
+        var corners = insets
+        if #available(iOS 26.0, *) {
+            let vertical = view.edgeInsets(for: .safeArea(cornerAdaptation: .vertical))
+            let horizontal = view.edgeInsets(for: .safeArea(cornerAdaptation: .horizontal))
+            corners = UIEdgeInsets(
+                top: vertical.top, left: horizontal.left, bottom: vertical.bottom, right: horizontal.right)
+        }
 
         let source = """
         (function(){var s=document.documentElement.style;\
         s.setProperty('--hasht-safe-area-top','\(insets.top)px');\
         s.setProperty('--hasht-safe-area-right','\(insets.right)px');\
         s.setProperty('--hasht-safe-area-bottom','\(insets.bottom)px');\
-        s.setProperty('--hasht-safe-area-left','\(insets.left)px');})();
+        s.setProperty('--hasht-safe-area-left','\(insets.left)px');\
+        s.setProperty('--hasht-safe-area-corner-top','\(corners.top)px');\
+        s.setProperty('--hasht-safe-area-corner-right','\(corners.right)px');\
+        s.setProperty('--hasht-safe-area-corner-bottom','\(corners.bottom)px');\
+        s.setProperty('--hasht-safe-area-corner-left','\(corners.left)px');})();
         """
+        guard source != published else { return }
+        published = source
 
         webView.evaluateJavaScript(source)
         reinstallInsetScript(source, in: webView.configuration.userContentController)
