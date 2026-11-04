@@ -33,6 +33,8 @@ user-configured instance.
   `CallAudioRoute.java` — Android-only; keeps the mic alive during a
   backgrounded call and moves call audio to headsets that connect mid-call. See
   README, "Calls in the background".
+- `android/.../NativeSpeechPlugin.java` — Android-only TextToSpeech, since the
+  WebView has no `speechSynthesis`. iOS uses WKWebView's own.
 - `ShareTarget` — the system share sheet target. `src/plugins/shareTarget.ts`;
   Android `ShareTargetPlugin` (copies shared streams to cache, served to the
   page under `/_hasht_share_/<token>/` by `HashtWebViewClient`). iOS uses

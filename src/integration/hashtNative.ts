@@ -384,3 +384,26 @@ export async function nativeAttachmentAction(
     throw error;
   }
 }
+
+/**
+ * Android only: the WebView has no speechSynthesis, so `NativeSpeech` reads
+ * text with the system TextToSpeech. Use it only when `speechSynthesis` is
+ * missing. `speak` replaces whatever is playing and resolves when it ends or
+ * is stopped. Older shells reject `available()`.
+ */
+export async function nativeSpeechAvailable(): Promise<boolean> {
+  try {
+    const result = (await capacitor()?.Plugins?.NativeSpeech?.available()) as { available?: boolean } | undefined;
+    return result?.available === true;
+  } catch {
+    return false;
+  }
+}
+
+export async function nativeSpeak(text: string, rate = 1): Promise<void> {
+  await capacitor()?.Plugins?.NativeSpeech?.speak({ text, rate });
+}
+
+export async function nativeStopSpeaking(): Promise<void> {
+  await capacitor()?.Plugins?.NativeSpeech?.stop();
+}
