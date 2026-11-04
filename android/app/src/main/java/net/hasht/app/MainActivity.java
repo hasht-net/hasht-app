@@ -50,6 +50,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(NativePushPlugin.class);
         registerPlugin(ShareTargetPlugin.class);
         registerPlugin(AppShortcutsPlugin.class);
+        registerPlugin(NativeSpeechPlugin.class);
         if (android.os.Build.VERSION.SDK_INT >= 31) {
             // Let the system splash leave on the first frame; the web app owns loading.
             androidx.core.splashscreen.SplashScreen.installSplashScreen(this);
