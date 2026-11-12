@@ -83,3 +83,22 @@ enum DeepLinks {
         value.range(of: pattern, options: .regularExpression) != nil
     }
 }
+
+/// Selection after a successful browser handoff, within one origin only.
+enum NativeSignInAccount {
+    struct Entry {
+        let id: String
+        let username: String?
+    }
+
+    static func select(_ entries: [Entry], username: String, activeId: String?) -> String? {
+        guard !username.isEmpty else { return nil }
+        let matches = entries.filter { $0.username == username }
+        if let active = matches.first(where: { $0.id == activeId }) { return active.id }
+        if let first = matches.first { return first.id }
+        // The initial picker entry has no account until its first sign-in.
+        if entries.count == 1, let entry = entries.first,
+           entry.username == nil, entry.id == activeId { return entry.id }
+        return nil
+    }
+}

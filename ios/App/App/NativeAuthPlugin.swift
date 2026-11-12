@@ -131,7 +131,7 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
         }
     }
 
-    /// A browser handoff creates an account without replacing a saved one.
+    /// Reuse the authenticated account while keeping other accounts separate.
     private func adopt(_ auth: [String: Any], for origin: URL) {
         guard let servers = serverConfig else { return }
         let finish = { (id: String) in
@@ -140,8 +140,17 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationP
                 servers.activate(id)
             }
         }
+        if let id = servers.accountForSignIn(origin: origin, username: auth["username"] as? String) {
+            finish(id)
+            return
+        }
         servers.fetchName(base: origin) { name in
             DispatchQueue.main.async {
+                // Recheck after the asynchronous request in case the saved list changed.
+                if let id = servers.accountForSignIn(origin: origin, username: auth["username"] as? String) {
+                    finish(id)
+                    return
+                }
                 finish(servers.addServer(url: origin.absoluteString, name: name ?? origin.host ?? "Hasht"))
             }
         }

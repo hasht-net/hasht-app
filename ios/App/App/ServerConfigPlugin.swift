@@ -422,6 +422,17 @@ public class ServerConfigPlugin: CAPPlugin, CAPBridgedPlugin {
         append(url: url, name: name).id
     }
 
+    /// Repeated browser sign-ins must return to the saved account, not add a row.
+    func accountForSignIn(origin: URL, username: String?) -> String? {
+        guard let username, !username.isEmpty else { return nil }
+        let candidates = servers.filter {
+            URL(string: $0.url).map(Self.originKey) == Self.originKey(origin)
+        }
+        return NativeSignInAccount.select(
+            candidates.map { .init(id: $0.id, username: $0.username) },
+            username: username, activeId: activeId)
+    }
+
     /// Makes `id` active and loads it — at `url` if given, e.g. the message a
     /// tapped notification is about.
     func activate(_ id: String, loading url: String? = nil) {
