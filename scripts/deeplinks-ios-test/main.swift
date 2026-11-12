@@ -62,6 +62,13 @@ check(DeepLinks.decide(invite, entries: several, defaultId: "s") == .choose(["a"
 
 check(DeepLinks.isRoutedPath("/invite/abc") && DeepLinks.isRoutedPath(message) && !DeepLinks.isRoutedPath("/"), "routed paths")
 
+let accounts: [NativeSignInAccount.Entry] = [.init(id: "a", username: "alice"), .init(id: "b", username: "bob")]
+check(NativeSignInAccount.select(accounts, username: "alice", activeId: "b") == "a", "handoff reuses same account")
+check(NativeSignInAccount.select(accounts, username: "carol", activeId: "a") == nil, "different account stays separate")
+check(NativeSignInAccount.select([.init(id: "a", username: nil)], username: "alice", activeId: "a") == "a", "first sign-in reuses picker entry")
+check(NativeSignInAccount.select([.init(id: "a", username: nil)], username: "alice", activeId: nil) == nil, "unselected unknown entry is preserved")
+check(NativeSignInAccount.select([.init(id: "a", username: "alice"), .init(id: "b", username: "alice")], username: "alice", activeId: "b") == "b", "existing duplicates prefer active account")
+
 if failures > 0 {
     print("\(failures) failed")
     exit(1)
