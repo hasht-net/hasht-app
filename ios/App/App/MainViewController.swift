@@ -243,7 +243,7 @@ extension MainViewController {
                 self, selector: #selector(keyboardFrameChanged(_:)), name: name, object: nil)
         }
         center.addObserver(
-            self, selector: #selector(keyboardHidden), name: UIResponder.keyboardWillHideNotification,
+            self, selector: #selector(keyboardHidden(_:)), name: UIResponder.keyboardWillHideNotification,
             object: nil)
     }
 
@@ -253,18 +253,22 @@ extension MainViewController {
         // Only the part that actually overlaps the web view counts: a hardware
         // keyboard parks the frame off-screen, which must read as zero.
         let overlap = view.bounds.intersection(view.convert(frame, from: nil)).height
-        publishKeyboardInset(max(0, overlap.isFinite ? overlap : 0))
+        publishKeyboardInset(max(0, overlap.isFinite ? overlap : 0), notification: note)
     }
 
-    @objc private func keyboardHidden() {
-        publishKeyboardInset(0)
+    @objc private func keyboardHidden(_ note: Notification) {
+        publishKeyboardInset(0, notification: note)
     }
 
-    private func publishKeyboardInset(_ inset: CGFloat) {
+    private func publishKeyboardInset(_ inset: CGFloat, notification: Notification) {
+        let info = notification.userInfo
+        let duration = (info?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0
+        let curve = (info?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int) ?? 0
+        let durationMs = duration.isFinite ? duration * 1000 : 0
         let js = """
         (function(){document.documentElement.style.setProperty(\
         '--hasht-keyboard-inset','\(inset)px');\
-        window.dispatchEvent(new CustomEvent('hasht:keyboard',{detail:{inset:\(inset)}}));})();
+        window.dispatchEvent(new CustomEvent('hasht:keyboard',{detail:{inset:\(inset),durationMs:\(durationMs),curve:\(curve)}}));})();
         """
         webView?.evaluateJavaScript(js)
     }

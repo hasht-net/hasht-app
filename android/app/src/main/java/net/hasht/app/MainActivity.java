@@ -56,6 +56,7 @@ public class MainActivity extends BridgeActivity {
             androidx.core.splashscreen.SplashScreen.installSplashScreen(this);
         }
         super.onCreate(savedInstanceState);
+        KeyboardDismissAnimation.install(getWindow().getDecorView(), getBridge().getWebView());
         loadRecovery = new LoadRecovery(this, getBridge().getWebView());
         getBridge().setWebViewClient(new HashtWebViewClient(getBridge(), loadRecovery));
         loadRecovery.started(getBridge().getAppUrl());
